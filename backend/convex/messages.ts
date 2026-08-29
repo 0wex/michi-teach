@@ -3,16 +3,39 @@ import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { requireConversationAccess } from "./lib/authorization";
+import {
+  MAX_IMAGE_BASE64_LENGTH,
+  normalizeImageDataUrl,
+  storeScreenshotFromBase64,
+} from "./lib/imageStorage";
+
+async function withResolvedScreenshotUrl(
+  ctx: { storage: { getUrl: (id: Id<"_storage">) => Promise<string | null> } },
+  message: {
+    screenshotUrl?: string;
+    screenshotStorageId?: Id<"_storage">;
+  } & Record<string, unknown>
+) {
+  if (message.screenshotStorageId) {
+    const url = await ctx.storage.getUrl(message.screenshotStorageId);
+    if (url) {
+      return { ...message, screenshotUrl: url };
+    }
+  }
+  return message;
+}
 
 export const list = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
     await requireConversationAccess(ctx, args.conversationId);
-    return await ctx.db
+    const messages = await ctx.db
       .query("messages")
       .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
       .order("asc")
       .collect();
+
+    return Promise.all(messages.map((message) => withResolvedScreenshotUrl(ctx, message)));
   },
 });
 
@@ -23,6 +46,7 @@ export const save = internalMutation({
     content: v.string(),
     detectedTool: v.optional(v.string()),
     screenshotUrl: v.optional(v.string()),
+    screenshotStorageId: v.optional(v.id("_storage")),
     visualHighlight: v.optional(
       v.object({
         x: v.number(),
@@ -38,6 +62,7 @@ export const save = internalMutation({
       content: args.content,
       detectedTool: args.detectedTool,
       screenshotUrl: args.screenshotUrl,
+      screenshotStorageId: args.screenshotStorageId,
       visualHighlight: args.visualHighlight,
       createdAt: Date.now(),
     });
@@ -64,21 +89,26 @@ export const sendAndReply = action({
       conversationId: args.conversationId,
     });
 
+    if (args.imageBase64 && args.imageBase64.length > MAX_IMAGE_BASE64_LENGTH) {
+      throw new Error("La imagen supera el tamaño máximo permitido (16 MB).");
+    }
+
+    const screenshotStorageId = args.imageBase64
+      ? await storeScreenshotFromBase64(ctx, args.imageBase64)
+      : undefined;
+
     const userMessageId: Id<"messages"> = await ctx.runMutation(internal.messages.save, {
       conversationId: args.conversationId,
       role: "user",
       content: args.content,
-      screenshotUrl: args.imageBase64,
+      screenshotStorageId,
     });
 
     const apiKey = process.env.OPENAI_API_KEY;
     const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
     if (args.imageBase64 && apiKey) {
-      let imageUrl = args.imageBase64;
-      if (!imageUrl.startsWith("data:")) {
-        imageUrl = `data:image/png;base64,${imageUrl}`;
-      }
+      const imageUrl = normalizeImageDataUrl(args.imageBase64);
 
       let ragContext = "";
       try {
