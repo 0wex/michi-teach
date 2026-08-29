@@ -36,6 +36,71 @@ paths:
                     type: string
                     example: 1.0.0
 
+  /api/auth/signin:
+    post:
+      summary: Iniciar sesión o autenticar usuario
+      description: Permite iniciar sesión vía credenciales (email y contraseña), OAuth (GitHub / Google) o modo anónimo (guest) usando Convex Auth.
+      operationId: signIn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+      responses:
+        '200':
+          description: Sesión iniciada con éxito
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Credenciales inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/signout:
+    post:
+      summary: Cerrar sesión actual
+      description: Invalida el token o sesión activa en Convex Auth.
+      operationId: signOut
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Sesión finalizada correctamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+
+  /api/auth/user:
+    get:
+      summary: Obtener perfil del usuario autenticado
+      description: Devuelve los datos del usuario actual a partir de su sesión activa.
+      operationId: getCurrentUser
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Perfil del usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/analyze:
     post:
       summary: Analizar captura y detectar elemento de UI
@@ -175,6 +240,71 @@ components:
       bearerFormat: JWT
 
   schemas:
+    SignInRequest:
+      type: object
+      required:
+        - provider
+      properties:
+        provider:
+          type: string
+          enum: [password, github, google, anonymous]
+          description: Proveedor de autenticación
+          example: password
+        email:
+          type: string
+          format: email
+          description: Correo electrónico (requerido si provider es password)
+          example: editor@visionguide.dev
+        password:
+          type: string
+          format: password
+          description: Contraseña (requerido si provider es password)
+          example: secretPassword123
+        flow:
+          type: string
+          enum: [signIn, signUp]
+          default: signIn
+          description: Flujo de inicio o registro
+
+    AuthResponse:
+      type: object
+      required:
+        - success
+        - token
+        - user
+      properties:
+        success:
+          type: boolean
+          example: true
+        token:
+          type: string
+          description: Token de sesión para llamadas Bearer
+          example: eyJhbGciOiJIUzI1NiIsIn...
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+          example: usr_987654
+        name:
+          type: string
+          example: Alejandro Editor
+        email:
+          type: string
+          example: editor@visionguide.dev
+        image:
+          type: string
+          example: https://avatars.githubusercontent.com/u/12345
+        isAnonymous:
+          type: boolean
+          example: false
+
     AnalyzeRequest:
       type: object
       required:
