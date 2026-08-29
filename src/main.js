@@ -7,7 +7,7 @@ import { createIcons, ChevronLeft, Minus, X, MoreHorizontal, Sparkles, BookOpen,
 
 document.querySelector('#app').innerHTML = `
   <section class="auth-screen" id="authScreen">
-    <button class="collapse-button auth-collapse" data-collapse aria-label="Colapsar panel"><i data-lucide="chevron-left"></i></button>
+    <button class="collapse-button auth-header-collapse" data-collapse aria-label="Colapsar panel"><i data-lucide="chevron-left"></i></button>
     <header class="auth-header">
       <span class="auth-index">01</span>
       <div class="auth-brand" aria-label="Michi Teach">MICHI TEACH</div>
