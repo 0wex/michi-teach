@@ -6,6 +6,15 @@ export default defineSchema({
   // Tablas del sistema de autenticación de Convex Auth (users, authSessions, authAccounts, etc.)
   ...authTables,
 
+  // Cuentas de la app de escritorio (email + contraseña con hash PBKDF2)
+  accounts: defineTable({
+    name: v.string(),
+    email: v.string(), // siempre normalizado a minúsculas
+    passwordHash: v.string(), // PBKDF2-SHA256, hex
+    salt: v.string(), // 16 bytes en hex
+    createdAt: v.number(),
+  }).index("by_email", ["email"]),
+
   // Hilos de conversación entre el usuario y el asistente
   conversations: defineTable({
     userId: v.optional(v.id("users")), // ID del usuario autenticado (o null para invitado)

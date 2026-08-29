@@ -72,7 +72,7 @@ export const sendAndReply = action({
     const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
     const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-    // B. Flujo enriquecido con Auto-Detección, RAG e Inferencia Visual
+    // B1. Flujo con Imagen: Auto-Detección de Software, RAG e Inferencia Visual
     if (args.imageBase64 && apiKey) {
       try {
         let imageUrl = args.imageBase64;
@@ -85,7 +85,6 @@ export const sendAndReply = action({
         let detectedToolName: string | undefined = undefined;
 
         try {
-          // Búsqueda vectorial amplia para la duda
           const relevantDocs = await ctx.runAction(api.rag.searchDocs, {
             query: args.content,
             limit: 2,
@@ -102,7 +101,7 @@ export const sendAndReply = action({
 
         // Paso 2: Prompt con Auto-Detección de Software y RAG Grounding
         const systemPrompt = `
-ROL: Eres un tutor experto de software de edición de video, diseño y 3D en tiempo real.
+ROL: Eres Michi, un tutor experto de software de edición de video, diseño y 3D en tiempo real.
 
 TAREA PRINCIPAL:
 1. AUTO-DETECCIÓN: Analiza la interfaz en la captura de pantalla e identifica qué software es (ej: "DaVinci Resolve", "Blender", "CapCut", "Adobe Photoshop", "Adobe Premiere Pro", o "Desconocido").
@@ -112,7 +111,7 @@ ${ragContext ? ragContext : "Utiliza las mejores prácticas estándar para la he
 3. INSTRUCCIÓN AL USUARIO:
    - Responde a la duda: "${args.content}".
    - Utiliza los atajos de teclado y nombres de menús canónicos de la documentación oficial.
-   - Sé conciso, claro y directo (máximo 35 palabras), pensado para guiar en vivo.
+   - Sé conciso, claro y motivador (máximo 35 palabras), pensado para guiar en vivo.
 
 4. SEÑALIZACIÓN VISUAL:
    - Si la consulta alude a un botón, menú, herramienta o control visible en pantalla, indica sus coordenadas normalizadas (x e y flotantes entre 0.0 y 1.0) del centro exacto del elemento.
@@ -211,25 +210,76 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
       }
     }
 
-    // C. Respuesta de fallback cuando no hay imagen o consulta puramente conversacional
-    let defaultResponse = `He recibido tu consulta: "${args.content}". Puedes hacer preguntas sobre cualquier software de edición o adjuntar una captura de tu pantalla para que te señale el botón exacto.`;
-
+    // B2. Sin imagen pero con clave: Chat de texto con el tutor Michi enriquecido con RAG y memoria
     if (!args.imageBase64 && apiKey) {
       try {
-        // Consultar RAG para preguntas conceptuales
-        const relevantDocs = await ctx.runAction(api.rag.searchDocs, {
-          query: args.content,
-          limit: 2,
+        const history = await ctx.runQuery(api.messages.list, {
+          conversationId: args.conversationId,
+        });
+        const priorTurns = history
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .slice(-12)
+          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+        // Consultar RAG para complementar con documentación técnica si aplica
+        let textRagSnippet = "";
+        try {
+          const docs = await ctx.runAction(api.rag.searchDocs, {
+            query: args.content,
+            limit: 2,
+          });
+          if (docs && docs.length > 0) {
+            textRagSnippet = docs.map((d) => `[${d.title}]: ${d.content}`).join("\n");
+          }
+        } catch {
+          // Ignorar si el RAG no devuelve docs
+        }
+
+        const systemPrompt =
+          "Eres Michi, un tutor personal cálido, claro y motivador. Explicas cualquier " +
+          "tema paso a paso, con ejemplos concretos y lenguaje sencillo. Respondes siempre " +
+          "en español. Si la pregunta es ambigua, pide una aclaración breve. Mantén las " +
+          "respuestas enfocadas (unas 180 palabras como máximo, salvo que pidan más detalle).\n\n" +
+          (textRagSnippet ? `INFORMACIÓN DE REFERENCIA:\n${textRagSnippet}` : "");
+
+        const chatResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey.trim()}`,
+          },
+          body: JSON.stringify({
+            model: model,
+            temperature: 0.4,
+            max_tokens: 600,
+            messages: [{ role: "system", content: systemPrompt }, ...priorTurns],
+          }),
         });
 
-        if (relevantDocs && relevantDocs.length > 0) {
-          const topDoc = relevantDocs[0];
-          defaultResponse = `${topDoc.title} (${topDoc.tool.toUpperCase()}): ${topDoc.content}`;
+        if (chatResponse.ok) {
+          const data = await chatResponse.json();
+          const reply: string | undefined = data.choices?.[0]?.message?.content?.trim();
+          if (reply) {
+            const assistantMessageId: Id<"messages"> = await ctx.runMutation(api.messages.save, {
+              conversationId: args.conversationId,
+              role: "assistant",
+              content: reply,
+            });
+            return { userMessageId, assistantMessageId, content: reply };
+          }
+        } else {
+          const errData = await chatResponse.text();
+          console.error("OpenAI API error (texto):", chatResponse.status, errData);
         }
-      } catch {
-        // Mantener defaultResponse en caso de fallo
+      } catch (err) {
+        console.error("Error al procesar texto con OpenAI:", err);
       }
     }
+
+    // C. Respuesta de fallback / texto conversacional (si no hay clave)
+    const defaultResponse = args.imageBase64
+      ? "He recibido tu captura de pantalla. En este momento el servicio de inferencia está funcionando en modo demostración. Puedes configurar OPENAI_API_KEY para detección en tiempo real."
+      : `He recibido tu consulta: "${args.content}". Puedes hacer preguntas sobre cualquier software o adjuntar una captura de tu pantalla para que te señale el botón exacto.`;
 
     const assistantMessageId: Id<"messages"> = await ctx.runMutation(api.messages.save, {
       conversationId: args.conversationId,

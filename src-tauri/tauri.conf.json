@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Lumi",
-        "width": 390,
-        "height": 720,
+        "width": 360,
+        "height": 640,
         "minWidth": 38,
         "minHeight": 54,
         "resizable": true,
