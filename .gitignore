@@ -1,6 +1,7 @@
 node_modules
 .pnpm-store
 dist
+build/
 src-tauri/target
 src-tauri/gen
 .env
@@ -10,3 +11,24 @@ src-tauri/gen
 rustup-init.exe
 vs_BuildTools.exe
 *.log
+
+# Convex
+.convex/
+convex/_generated/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS Files
+Thumbs.db
+[Dd]esktop.ini
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
