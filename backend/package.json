@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "convex dev",
     "deploy": "convex dev --once",
-    "seed": "convex run rag:seedDocs \"{}\"",
+    "ingest:windows": "convex run rag:runIngestApp '{\"app\":\"windows\"}'",
+    "ingest:davinci": "convex run rag:runIngestApp '{\"app\":\"davinci\"}'",
     "build": "tsc --noEmit"
   },
   "dependencies": {
