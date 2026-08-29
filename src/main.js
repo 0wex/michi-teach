@@ -3,7 +3,7 @@ import mascot from './assets/lumi-mascot.png';
 import { ConvexClient } from 'convex/browser';
 import { anyApi } from 'convex/server';
 import { invoke } from '@tauri-apps/api/core';
-import { createIcons, ChevronLeft, Minus, X, MoreHorizontal, Sparkles, BookOpen, Languages, Lightbulb, Paperclip, Mic, Send } from 'lucide';
+import { createIcons, Minus, X, MoreHorizontal, Sparkles, BookOpen, Languages, Lightbulb, Paperclip, Mic, Send } from 'lucide';
 
 document.querySelector('#app').innerHTML = `
   <section class="auth-screen" id="authScreen">
@@ -11,7 +11,6 @@ document.querySelector('#app').innerHTML = `
       <span class="auth-index">01</span>
       <div class="auth-brand" aria-label="Michi Teach">MICHI TEACH</div>
       <div class="auth-system">
-        <button class="collapse-button auth-header-collapse" data-collapse aria-label="Colapsar panel"><i data-lucide="chevron-left"></i></button>
         <button class="auth-close" id="authClose" type="button" aria-label="Cerrar aplicación">×</button>
       </div>
     </header>
@@ -55,7 +54,6 @@ document.querySelector('#app').innerHTML = `
   </section>
 
   <section class="shell app-locked" id="assistantShell">
-    <button class="collapse-button" data-collapse aria-label="Ocultar en el borde derecho"><i data-lucide="chevron-left"></i></button>
     <header class="titlebar" data-tauri-drag-region>
       <div class="brand" data-tauri-drag-region>
         <div class="brand-mark"><img src="${mascot}" alt="Lumi" /></div>
@@ -114,7 +112,7 @@ document.querySelector('#app').innerHTML = `
   </section>
 `;
 
-createIcons({ icons: { ChevronLeft, Minus, X, MoreHorizontal, Sparkles, BookOpen, Languages, Lightbulb, Paperclip, Mic, Send } });
+createIcons({ icons: { Minus, X, MoreHorizontal, Sparkles, BookOpen, Languages, Lightbulb, Paperclip, Mic, Send } });
 
 const chat = document.querySelector('#chat');
 const form = document.querySelector('#composer');
@@ -128,7 +126,6 @@ const authTitle = document.querySelector('#authTitle');
 const authStatus = document.querySelector('#authStatus');
 const convexUrl = import.meta.env.VITE_CONVEX_URL;
 const convex = convexUrl ? new ConvexClient(convexUrl) : null;
-let collapsed = false;
 let registerMode = false;
 
 authSwitch.addEventListener('click', () => {
@@ -212,18 +209,6 @@ async function windowAction(action) {
 document.querySelector('#minimize').addEventListener('click', () => windowAction('minimize'));
 document.querySelector('#close').addEventListener('click', () => invoke('quit_app'));
 document.querySelector('#authClose').addEventListener('click', () => invoke('quit_app'));
-
-async function toggleCollapse() {
-  collapsed = !collapsed;
-  document.body.classList.toggle('collapsed', collapsed);
-  document.querySelectorAll('[data-collapse]').forEach((button) => {
-    button.setAttribute('aria-label', collapsed ? 'Mostrar panel' : 'Colapsar panel');
-    button.querySelector('svg').style.transform = collapsed ? 'rotate(180deg)' : '';
-  });
-  await invoke('set_collapsed', { collapsed });
-}
-
-document.querySelectorAll('[data-collapse]').forEach((button) => button.addEventListener('click', toggleCollapse));
 
 if (convex) {
   convex.onUpdate(anyApi.messages.list, {}, () => {});

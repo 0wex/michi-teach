@@ -6,11 +6,6 @@ use tauri::{
 };
 
 #[tauri::command]
-fn set_collapsed(window: WebviewWindow, collapsed: bool) -> Result<(), String> {
-    place_on_right(&window, collapsed)
-}
-
-#[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
 }
@@ -19,10 +14,10 @@ fn quit_app(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![set_collapsed, quit_app])
+        .invoke_handler(tauri::generate_handler![quit_app])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
-                let _ = place_on_right(&window, false);
+                let _ = place_on_right(&window);
             }
 
             let open = MenuItem::with_id(app, "open", "Abrir Lumi", true, None::<&str>)?;
@@ -65,24 +60,20 @@ fn show_lumi(app: &tauri::AppHandle) {
     }
 }
 
-fn place_on_right(window: &WebviewWindow, collapsed: bool) -> Result<(), String> {
+fn place_on_right(window: &WebviewWindow) -> Result<(), String> {
     let monitor = window
         .current_monitor()
         .map_err(|error| error.to_string())?
         .ok_or("No se encontró un monitor")?;
     let scale = monitor.scale_factor();
-    let (logical_width, logical_height) = if collapsed { (52.0, 120.0) } else { (390.0, 720.0) };
+    let (logical_width, logical_height) = (390.0, 720.0);
     let width = (logical_width * scale) as u32;
     let height = (logical_height * scale) as u32;
     let margin = (10.0 * scale) as i32;
     let monitor_position = monitor.position();
     let monitor_size = monitor.size();
     let x = monitor_position.x + monitor_size.width as i32 - width as i32 - margin;
-    let y = if collapsed {
-        monitor_position.y + margin
-    } else {
-        monitor_position.y + (monitor_size.height as i32 - height as i32) / 2
-    };
+    let y = monitor_position.y + (monitor_size.height as i32 - height as i32) / 2;
 
     window
         .set_size(PhysicalSize::new(width, height))
