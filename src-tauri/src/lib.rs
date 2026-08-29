@@ -4,20 +4,94 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, WebviewWindow,
 };
+use std::sync::Mutex;
+
+#[derive(Clone, Copy)]
+struct ExpandedWindow {
+    size: PhysicalSize<u32>,
+}
+
+struct CollapseState(Mutex<Option<ExpandedWindow>>);
 
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn set_collapsed(
+    window: WebviewWindow,
+    state: tauri::State<'_, CollapseState>,
+    collapsed: bool,
+) -> Result<(), String> {
+    let mut expanded = state.0.lock().map_err(|_| "No se pudo acceder al estado de la ventana")?;
+
+    if collapsed {
+        let size = window.outer_size().map_err(|error| error.to_string())?;
+        *expanded = Some(ExpandedWindow { size });
+
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        let collapsed_width = (38.0 * scale).round() as u32;
+        let collapsed_height = (54.0 * scale).round() as u32;
+        let monitor = window
+            .current_monitor()
+            .map_err(|error| error.to_string())?
+            .ok_or("No se encontró un monitor")?;
+        let work_area = monitor.work_area();
+        let margin = (10.0 * scale).round() as i32;
+        let fixed_x = work_area.position.x + work_area.size.width as i32 - collapsed_width as i32 - margin;
+        let fixed_y = work_area.position.y + (work_area.size.height as i32 - collapsed_height as i32) / 2;
+        window
+            .set_min_size(Some(PhysicalSize::new(collapsed_width, collapsed_height)))
+            .map_err(|error| error.to_string())?;
+        window.set_resizable(false).map_err(|error| error.to_string())?;
+        window
+            .set_size(PhysicalSize::new(collapsed_width, collapsed_height))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_position(PhysicalPosition::new(fixed_x, fixed_y))
+            .map_err(|error| error.to_string())?;
+    } else if let Some(previous) = expanded.take() {
+        window.set_resizable(true).map_err(|error| error.to_string())?;
+        window.set_size(previous.size).map_err(|error| error.to_string())?;
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        let monitor = window
+            .current_monitor()
+            .map_err(|error| error.to_string())?
+            .ok_or("No se encontró un monitor")?;
+        let work_area = monitor.work_area();
+        let margin = (10.0 * scale).round() as i32;
+        let fixed_x = work_area.position.x + work_area.size.width as i32 - previous.size.width as i32 - margin;
+        let fixed_y = work_area.position.y + (work_area.size.height as i32 - previous.size.height as i32) / 2;
+        window
+            .set_position(PhysicalPosition::new(fixed_x, fixed_y))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_min_size(Some(PhysicalSize::new(
+                (300.0 * scale).round() as u32,
+                (420.0 * scale).round() as u32,
+            )))
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![quit_app])
+        .manage(CollapseState(Mutex::new(None)))
+        .invoke_handler(tauri::generate_handler![quit_app, set_collapsed])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = place_on_right(&window);
+                if let Ok(scale) = window.scale_factor() {
+                    let _ = window.set_min_size(Some(PhysicalSize::new(
+                        (300.0 * scale).round() as u32,
+                        (420.0 * scale).round() as u32,
+                    )));
+                }
             }
 
             let open = MenuItem::with_id(app, "open", "Abrir Lumi", true, None::<&str>)?;

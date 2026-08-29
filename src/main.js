@@ -3,9 +3,12 @@ import mascot from './assets/lumi-mascot.png';
 import { ConvexClient } from 'convex/browser';
 import { anyApi } from 'convex/server';
 import { invoke } from '@tauri-apps/api/core';
-import { createIcons, Minus, X, MoreHorizontal, Sparkles, BookOpen, Languages, Lightbulb, Paperclip, Mic, Send } from 'lucide';
+import { createIcons, Minus, X, MoreHorizontal, Sparkles, BookOpen, Languages, Lightbulb, Paperclip, Mic, Send, ChevronLeft, ChevronRight, LogIn } from 'lucide';
 
 document.querySelector('#app').innerHTML = `
+  <button class="collapse-handle" id="collapseWindow" type="button" aria-label="Colapsar ventana" aria-expanded="true">
+    <i data-lucide="chevron-right"></i>
+  </button>
   <section class="auth-screen" id="authScreen">
     <header class="auth-header">
       <span class="auth-index">01</span>
@@ -63,6 +66,7 @@ document.querySelector('#app').innerHTML = `
         </div>
       </div>
       <div class="window-actions">
+        <button class="icon-button account-button" id="openLogin" aria-label="Ir al inicio de sesión" title="Inicio de sesión"><i data-lucide="log-in"></i></button>
         <button class="icon-button" id="minimize" aria-label="Minimizar"><i data-lucide="minus"></i></button>
         <button class="icon-button close" id="close" aria-label="Cerrar"><i data-lucide="x"></i></button>
       </div>
@@ -112,7 +116,7 @@ document.querySelector('#app').innerHTML = `
   </section>
 `;
 
-createIcons({ icons: { Minus, X, MoreHorizontal, Sparkles, BookOpen, Languages, Lightbulb, Paperclip, Mic, Send } });
+createIcons({ icons: { Minus, X, MoreHorizontal, Sparkles, BookOpen, Languages, Lightbulb, Paperclip, Mic, Send, ChevronLeft, ChevronRight, LogIn } });
 
 const chat = document.querySelector('#chat');
 const form = document.querySelector('#composer');
@@ -127,6 +131,8 @@ const authStatus = document.querySelector('#authStatus');
 const convexUrl = import.meta.env.VITE_CONVEX_URL;
 const convex = convexUrl ? new ConvexClient(convexUrl) : null;
 let registerMode = false;
+let collapsed = false;
+let collapseTransition = false;
 
 authSwitch.addEventListener('click', () => {
   registerMode = !registerMode;
@@ -209,6 +215,48 @@ async function windowAction(action) {
 document.querySelector('#minimize').addEventListener('click', () => windowAction('minimize'));
 document.querySelector('#close').addEventListener('click', () => invoke('quit_app'));
 document.querySelector('#authClose').addEventListener('click', () => invoke('quit_app'));
+document.querySelector('#openLogin').addEventListener('click', () => {
+  assistantShell.classList.add('app-locked');
+  authScreen.classList.remove('auth-hidden');
+  registerMode = false;
+  loginForm.classList.remove('auth-hidden');
+  registerForm.classList.add('auth-hidden');
+  authTitle.textContent = 'BIENVENIDO.';
+  authSwitch.innerHTML = '¿NUEVO AQUÍ? <b>CREAR CUENTA</b>';
+  authStatus.textContent = '';
+  window.setTimeout(() => loginForm.elements.email?.focus(), 50);
+});
+
+document.querySelector('#collapseWindow').addEventListener('click', async () => {
+  if (collapseTransition) return;
+  collapseTransition = true;
+  const nextCollapsed = !collapsed;
+  const handle = document.querySelector('#collapseWindow');
+  handle.disabled = true;
+
+  try {
+    await invoke('set_collapsed', { collapsed: nextCollapsed });
+  } catch (error) {
+    if (window.__TAURI_INTERNALS__) {
+      console.error('No se pudo cambiar el tamaño de la ventana:', error);
+      handle.classList.add('collapse-error');
+      window.setTimeout(() => handle.classList.remove('collapse-error'), 700);
+      handle.disabled = false;
+      collapseTransition = false;
+      return;
+    }
+    /* La previsualización web conserva únicamente el estado visual. */
+  }
+
+  collapsed = nextCollapsed;
+  document.body.classList.toggle('window-collapsed', collapsed);
+  handle.setAttribute('aria-expanded', String(!collapsed));
+  handle.setAttribute('aria-label', collapsed ? 'Expandir ventana' : 'Colapsar ventana');
+  handle.innerHTML = `<i data-lucide="${collapsed ? 'chevron-left' : 'chevron-right'}"></i>`;
+  createIcons({ icons: { ChevronLeft, ChevronRight } });
+  handle.disabled = false;
+  collapseTransition = false;
+});
 
 if (convex) {
   convex.onUpdate(anyApi.messages.list, {}, () => {});
