@@ -61,7 +61,15 @@ No requiere autenticación. Indica que el deployment responde; **no** garantiza 
 
 ## 5. RAG (semilla de documentación)
 
-`rag.seedDocs` es una **internalAction**. Ejecútala una vez desde el dashboard de Convex (Functions → Run) para poblar la base vectorial. Es idempotente: documentos existentes se omiten.
+Ejecuta una vez desde `backend/` para poblar la base vectorial (idempotente: omite documentos existentes):
+
+```bash
+cd backend
+npm run seed
+# equivalente: npx convex run rag:seedDocs "{}"
+```
+
+Estado actual en dev (`accurate-bloodhound-858`): **13 documentos** (davinci, blender, capcut, photoshop, premiere).
 
 Variables requeridas en el dashboard Convex:
 

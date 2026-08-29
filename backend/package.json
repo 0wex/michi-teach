@@ -5,6 +5,8 @@
   "description": "Vision Guide Convex Backend",
   "scripts": {
     "dev": "convex dev",
+    "deploy": "convex dev --once",
+    "seed": "convex run rag:seedDocs \"{}\"",
     "build": "tsc --noEmit"
   },
   "dependencies": {
