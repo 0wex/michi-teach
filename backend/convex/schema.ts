@@ -20,8 +20,9 @@ export default defineSchema({
     conversationId: v.id("conversations"),
     role: v.union(v.literal("user"), v.literal("assistant"), v.literal("system")),
     content: v.string(), // Texto del mensaje
+    detectedTool: v.optional(v.string()), // Software auto-detectado por la IA (ej. "DaVinci Resolve", "Blender")
 
-    // Metadatos visuales opcionales (para capturas de pantalla de cualquier software):
+    // Metadatos visuales opcionales:
     screenshotUrl: v.optional(v.string()), // Imagen base64 o URL
     visualHighlight: v.optional(
       v.object({
@@ -32,4 +33,18 @@ export default defineSchema({
     ),
     createdAt: v.number(),
   }).index("by_conversation", ["conversationId"]),
+
+  // Base de conocimiento técnica y vectorial para RAG
+  documents: defineTable({
+    tool: v.string(), // Identificador del software (ej. "davinci", "blender", "capcut", "photoshop", "premiere")
+    title: v.string(), // Título del concepto o funcionalidad
+    content: v.string(), // Explicación técnica, atajos y ubicación en la interfaz
+    embedding: v.array(v.float64()), // Vector de 1536 dimensiones (OpenAI text-embedding-3-small)
+  })
+    .index("by_tool", ["tool"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["tool"],
+    }),
 });
