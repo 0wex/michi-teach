@@ -174,6 +174,57 @@ Si no se identifica ningún control concreto, devuelve x: null, y: null, label: 
       }
     }
 
+    // B2. Sin imagen pero con clave: chat de texto con el tutor (OpenAI)
+    if (!args.imageBase64 && apiKey) {
+      try {
+        const history = await ctx.runQuery(api.messages.list, {
+          conversationId: args.conversationId,
+        });
+        const priorTurns = history
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .slice(-12)
+          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+        const systemPrompt =
+          "Eres Michi, un tutor personal cálido, claro y motivador. Explicas cualquier " +
+          "tema paso a paso, con ejemplos concretos y lenguaje sencillo. Respondes siempre " +
+          "en español. Si la pregunta es ambigua, pide una aclaración breve. Mantén las " +
+          "respuestas enfocadas (unas 180 palabras como máximo, salvo que pidan más detalle).";
+
+        const chatResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey.trim()}`,
+          },
+          body: JSON.stringify({
+            model: model,
+            temperature: 0.4,
+            max_tokens: 600,
+            messages: [{ role: "system", content: systemPrompt }, ...priorTurns],
+          }),
+        });
+
+        if (chatResponse.ok) {
+          const data = await chatResponse.json();
+          const reply: string | undefined = data.choices?.[0]?.message?.content?.trim();
+          if (reply) {
+            const assistantMessageId: Id<"messages"> = await ctx.runMutation(api.messages.save, {
+              conversationId: args.conversationId,
+              role: "assistant",
+              content: reply,
+            });
+            return { userMessageId, assistantMessageId, content: reply };
+          }
+        } else {
+          const errData = await chatResponse.text();
+          console.error("OpenAI API error (texto):", chatResponse.status, errData);
+        }
+      } catch (err) {
+        console.error("Error al procesar texto con OpenAI:", err);
+      }
+    }
+
     // C. Respuesta de fallback / texto conversacional (si no hay clave o no hay imagen)
     const defaultResponse = args.imageBase64
       ? "He recibido tu captura de pantalla. En este momento el servicio de inferencia está funcionando en modo demostración. Puedes configurar OPENAI_API_KEY para detección en tiempo real."

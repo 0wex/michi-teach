@@ -133,6 +133,16 @@ const convex = convexUrl ? new ConvexClient(convexUrl) : null;
 let registerMode = false;
 let collapsed = false;
 let collapseTransition = false;
+let account = null;
+let conversationId = null;
+
+// Convex adjunta el mensaje del servidor en error.data cuando se lanza un ConvexError.
+function extractError(error) {
+  if (error && typeof error.data === 'string') return error.data;
+  const raw = (error && error.message) || String(error || '');
+  const match = raw.match(/Uncaught (?:Convex)?Error:\s*(.+)/) || raw.match(/Error:\s*(.+)/);
+  return (match ? match[1] : raw).split('\n')[0].replace(/\s+at\s+.*/, '').trim().slice(0, 160);
+}
 
 authSwitch.addEventListener('click', () => {
   registerMode = !registerMode;
@@ -144,17 +154,24 @@ authSwitch.addEventListener('click', () => {
 });
 
 async function submitAuth(kind, form) {
+  if (!convex) {
+    authStatus.textContent = 'FALTA CONFIGURAR VITE_CONVEX_URL.';
+    return;
+  }
   const values = Object.fromEntries(new FormData(form));
+  const submitButton = form.querySelector('.auth-submit');
   authStatus.textContent = 'CONECTANDO…';
+  if (submitButton) submitButton.disabled = true;
   try {
-    if (convex) {
-      await convex.mutation(anyApi.auth[kind], values);
-    }
+    account = await convex.mutation(anyApi.accounts[kind], values);
     form.reset();
+    authStatus.textContent = '';
     authScreen.classList.add('auth-hidden');
     assistantShell.classList.remove('app-locked');
-  } catch {
-    authStatus.textContent = 'NO SE PUDO CONECTAR CON CONVEX.';
+  } catch (error) {
+    authStatus.textContent = (extractError(error) || 'NO SE PUDO CONECTAR CON EL SERVIDOR.').toUpperCase();
+  } finally {
+    if (submitButton) submitButton.disabled = false;
   }
 }
 
@@ -174,6 +191,14 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 
+function appendLumi(text) {
+  chat.insertAdjacentHTML(
+    'beforeend',
+    `<div class="message lumi-message"><div class="mini-avatar"><img src="${mascot}" alt="" /></div><div class="bubble"><p>${escapeHtml(text)}</p><small>Ahora</small></div></div>`
+  );
+  chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
+}
+
 async function sendMessage(text) {
   const clean = text.trim();
   if (!clean) return;
@@ -185,15 +210,25 @@ async function sendMessage(text) {
   chat.appendChild(typing);
   input.value = '';
   input.style.height = 'auto';
-  if (convex) {
-    convex.mutation(anyApi.messages.send, { body: clean }).catch(console.error);
-  }
   chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
-  window.setTimeout(() => {
+
+  if (!convex) {
     typing.remove();
-    chat.insertAdjacentHTML('beforeend', `<div class="message lumi-message"><div class="mini-avatar"><img src="${mascot}" alt="" /></div><div class="bubble"><p>¡Buena pregunta! Esta demo ya tiene lista la experiencia de conversación. El siguiente paso es conectar tu modelo de IA para responder sobre <b>${escapeHtml(clean.toLowerCase())}</b>.</p><small>Ahora</small></div></div>`);
-    chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
-  }, 900);
+    appendLumi('Configura VITE_CONVEX_URL para conectar con el asistente.');
+    return;
+  }
+
+  try {
+    if (!conversationId) {
+      conversationId = await convex.mutation(anyApi.conversations.create, { title: clean.slice(0, 48) });
+    }
+    const reply = await convex.action(anyApi.messages.sendAndReply, { conversationId, content: clean });
+    typing.remove();
+    appendLumi(reply?.content || 'No recibí respuesta del asistente.');
+  } catch (error) {
+    typing.remove();
+    appendLumi(`No pude conectar con el asistente. ${extractError(error)}`.trim());
+  }
 }
 
 form.addEventListener('submit', (event) => { event.preventDefault(); sendMessage(input.value); });
@@ -216,6 +251,8 @@ document.querySelector('#minimize').addEventListener('click', () => windowAction
 document.querySelector('#close').addEventListener('click', () => invoke('quit_app'));
 document.querySelector('#authClose').addEventListener('click', () => invoke('quit_app'));
 document.querySelector('#openLogin').addEventListener('click', () => {
+  account = null;
+  conversationId = null;
   assistantShell.classList.add('app-locked');
   authScreen.classList.remove('auth-hidden');
   registerMode = false;
@@ -257,7 +294,3 @@ document.querySelector('#collapseWindow').addEventListener('click', async () => 
   handle.disabled = false;
   collapseTransition = false;
 });
-
-if (convex) {
-  convex.onUpdate(anyApi.messages.list, {}, () => {});
-}
