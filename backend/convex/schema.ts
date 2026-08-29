@@ -19,6 +19,7 @@ export default defineSchema({
     content: v.string(),
     detectedTool: v.optional(v.string()),
     screenshotUrl: v.optional(v.string()),
+    screenshotStorageId: v.optional(v.id("_storage")),
     visualHighlight: v.optional(
       v.object({
         x: v.number(),
