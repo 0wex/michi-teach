@@ -10,9 +10,8 @@ document.querySelector('#app').innerHTML = `
     <button class="collapse-button auth-collapse" data-collapse aria-label="Colapsar panel"><i data-lucide="chevron-left"></i></button>
     <header class="auth-header">
       <span class="auth-index">01</span>
-      <div class="auth-brand" aria-label="Michi Teach">MICHI<br />TEACH</div>
+      <div class="auth-brand" aria-label="Michi Teach">MICHI TEACH</div>
       <div class="auth-system">
-        <span class="auth-edition">DESKTOP / 2026</span>
         <button class="auth-close" id="authClose" type="button" aria-label="Cerrar aplicación">×</button>
       </div>
     </header>
