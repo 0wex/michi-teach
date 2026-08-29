@@ -1,0 +1,313 @@
+openapi: 3.1.0
+info:
+  title: Vision Guide API
+  description: API reactiva y de visión contextual para Vision Guide (Tutor de Software en Tiempo Real). Orquesta la autenticación, chat multi-turno e inferencia espacial con Claude 3.7 Vision.
+  version: 1.0.0
+servers:
+  - url: https://{deploymentName}.convex.site
+    description: Convex Cloud HTTP Router (Producción / Dev)
+    variables:
+      deploymentName:
+        default: my-deployment
+        description: Identificador del deployment de Convex
+  - url: http://localhost:3001
+    description: Desktop Agent Local (Captura de pantalla en segundo plano)
+
+paths:
+  /api/health:
+    get:
+      summary: Verificación de estado del servicio
+      operationId: getHealth
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: integer
+                    example: 1724940000000
+                  version:
+                    type: string
+                    example: 1.0.0
+
+  /api/analyze:
+    post:
+      summary: Analizar captura y detectar elemento de UI
+      description: Recibe una imagen en Base64 junto con la consulta del usuario, inyecta la documentación técnica de DaVinci/CapCut y utiliza Claude 3.7 Vision para devolver las coordenadas normalizadas del botón a interactuar.
+      operationId: analyzeScreenshot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+      responses:
+        '200':
+          description: Coordenadas y explicación generadas con éxito
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyzeResponse'
+        '400':
+          description: Parámetros inválidos o imagen corrupta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error en el procesamiento de inferencia o límite de API
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/conversations:
+    get:
+      summary: Listar conversaciones del usuario
+      operationId: listConversations
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Lista de hilos de chat
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Conversation'
+    post:
+      summary: Crear un nuevo hilo de conversación
+      operationId: createConversation
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - tool
+              properties:
+                title:
+                  type: string
+                  example: Sesión de Nodos de Color
+                tool:
+                  type: string
+                  enum: [davinci, capcut]
+                  example: davinci
+      responses:
+        '201':
+          description: Conversación creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+
+  /api/conversations/{conversationId}/messages:
+    get:
+      summary: Obtener mensajes de una conversación
+      operationId: getMessages
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Historial de mensajes en orden cronológico
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatMessage'
+    post:
+      summary: Enviar mensaje con captura opcional y recibir respuesta guiada
+      operationId: sendMessage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  example: ¿Cómo conecto este nodo al panel de salida?
+                imageBase64:
+                  type: string
+                  description: Captura de pantalla opcional en formato data-uri o base64
+      responses:
+        '200':
+          description: Respuesta generada por el asistente con asistencia visual
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessage'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AnalyzeRequest:
+      type: object
+      required:
+        - imageBase64
+        - question
+        - tool
+      properties:
+        imageBase64:
+          type: string
+          description: Imagen codificada en base64 (PNG o JPEG)
+          example: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+        question:
+          type: string
+          description: Consulta del usuario sobre la interfaz
+          example: ¿Dónde agrego un keyframe en la línea de tiempo?
+        tool:
+          type: string
+          enum: [davinci, capcut]
+          description: Identificador del software de edición
+          example: davinci
+        version:
+          type: string
+          description: Versión específica del software detectada
+          example: 21.0.4
+        conversationId:
+          type: string
+          description: ID de conversación opcional para mantener contexto multi-turno
+
+    AnalyzeResponse:
+      type: object
+      required:
+        - success
+        - coordinates
+        - explanation
+      properties:
+        success:
+          type: boolean
+          example: true
+        coordinates:
+          type: object
+          required:
+            - x
+            - y
+          properties:
+            x:
+              type: number
+              minimum: 0.0
+              maximum: 1.0
+              description: Coordenada X horizontal normalizada (0.0 izquierda, 1.0 derecha)
+              example: 0.452
+            y:
+              type: number
+              minimum: 0.0
+              maximum: 1.0
+              description: Coordenada Y vertical normalizada (0.0 arriba, 1.0 abajo)
+              example: 0.781
+        buttonName:
+          type: string
+          description: Nombre canónico del botón o control identificado
+          example: Botón de Diamante de Keyframe
+        explanation:
+          type: string
+          description: Instrucciones concisas para síntesis de voz (máximo 30 palabras)
+          example: Haz clic en el ícono del diamante en la barra superior para insertar un keyframe.
+        executionTimeMs:
+          type: integer
+          description: Tiempo total de inferencia en milisegundos
+          example: 840
+        requestId:
+          type: string
+          description: Identificador único de la petición
+
+    Conversation:
+      type: object
+      required:
+        - id
+        - title
+        - tool
+        - createdAt
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        tool:
+          type: string
+        createdAt:
+          type: integer
+
+    ChatMessage:
+      type: object
+      required:
+        - id
+        - conversationId
+        - role
+        - content
+        - createdAt
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        screenshotUrl:
+          type: string
+        visualHighlight:
+          type: object
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+            buttonName:
+              type: string
+        createdAt:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: No se pudo identificar el elemento en la interfaz con suficiente certeza.
+        code:
+          type: string
+          example: ELEMENT_NOT_FOUND
