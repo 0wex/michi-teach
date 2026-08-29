@@ -1,12 +1,13 @@
-import { action, mutation, query } from "./_generated/server";
-import { api } from "./_generated/api";
+import { action, internalMutation, query } from "./_generated/server";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
+import { requireConversationAccess } from "./lib/authorization";
 
-// 1. Listar mensajes de una conversación en orden cronológico
 export const list = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
+    await requireConversationAccess(ctx, args.conversationId);
     return await ctx.db
       .query("messages")
       .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
@@ -15,8 +16,7 @@ export const list = query({
   },
 });
 
-// 2. Guardar un mensaje en la base de datos
-export const save = mutation({
+export const save = internalMutation({
   args: {
     conversationId: v.id("conversations"),
     role: v.union(v.literal("user"), v.literal("assistant"), v.literal("system")),
@@ -44,7 +44,6 @@ export const save = mutation({
   },
 });
 
-// 3. Enviar mensaje del usuario y generar la respuesta con Auto-Detección y RAG Interno
 export const sendAndReply = action({
   args: {
     conversationId: v.id("conversations"),
@@ -61,46 +60,42 @@ export const sendAndReply = action({
     detectedTool?: string;
     visualHighlight?: { x: number; y: number; label?: string };
   }> => {
-    // A. Guardar mensaje del usuario
-    const userMessageId: Id<"messages"> = await ctx.runMutation(api.messages.save, {
+    await ctx.runQuery(internal.conversations.assertAccess, {
+      conversationId: args.conversationId,
+    });
+
+    const userMessageId: Id<"messages"> = await ctx.runMutation(internal.messages.save, {
       conversationId: args.conversationId,
       role: "user",
       content: args.content,
       screenshotUrl: args.imageBase64,
     });
 
-    const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY;
     const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-    // B1. Flujo con Imagen: Auto-Detección de Software, RAG e Inferencia Visual
     if (args.imageBase64 && apiKey) {
+      let imageUrl = args.imageBase64;
+      if (!imageUrl.startsWith("data:")) {
+        imageUrl = `data:image/png;base64,${imageUrl}`;
+      }
+
+      let ragContext = "";
       try {
-        let imageUrl = args.imageBase64;
-        if (!imageUrl.startsWith("data:")) {
-          imageUrl = `data:image/png;base64,${imageUrl}`;
+        const relevantDocs = await ctx.runAction(internal.rag.searchDocs, {
+          query: args.content,
+          limit: 2,
+        });
+        if (relevantDocs.length > 0) {
+          ragContext = relevantDocs
+            .map((d) => `[DOCUMENTACIÓN OFICIAL: ${d.title} (${d.tool})]: ${d.content}`)
+            .join("\n\n");
         }
+      } catch (ragErr) {
+        console.warn("RAG no disponible:", ragErr);
+      }
 
-        // Paso 1: Consultar RAG preliminarmente con la pregunta del usuario
-        let ragContext = "";
-        let detectedToolName: string | undefined = undefined;
-
-        try {
-          const relevantDocs = await ctx.runAction(api.rag.searchDocs, {
-            query: args.content,
-            limit: 2,
-          });
-
-          if (relevantDocs && relevantDocs.length > 0) {
-            ragContext = relevantDocs
-              .map((d) => `[DOCUMENTACIÓN OFICIAL: ${d.title} (${d.tool})]: ${d.content}`)
-              .join("\n\n");
-          }
-        } catch (ragErr) {
-          console.warn("RAG no disponible o sin inicializar aún:", ragErr);
-        }
-
-        // Paso 2: Prompt con Auto-Detección de Software y RAG Grounding
-        const systemPrompt = `
+      const systemPrompt = `
 ROL: Eres Michi, un tutor experto de software de edición de video, diseño y 3D en tiempo real.
 
 TAREA PRINCIPAL:
@@ -128,160 +123,137 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
 }
 `;
 
-        const openAiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey.trim()}`,
-          },
-          body: JSON.stringify({
-            model: model,
-            response_format: { type: "json_object" },
-            temperature: 0.1,
-            max_tokens: 350,
-            messages: [
-              {
-                role: "system",
-                content: systemPrompt,
-              },
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: `Pregunta del usuario: "${args.content}"`,
-                  },
-                  {
-                    type: "image_url",
-                    image_url: {
-                      url: imageUrl,
-                    },
-                  },
-                ],
-              },
-            ],
-          }),
-        });
+      const openAiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey.trim()}`,
+        },
+        body: JSON.stringify({
+          model,
+          response_format: { type: "json_object" },
+          temperature: 0.1,
+          max_tokens: 350,
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: `Pregunta del usuario: "${args.content}"` },
+                { type: "image_url", image_url: { url: imageUrl } },
+              ],
+            },
+          ],
+        }),
+      });
 
-        if (openAiResponse.ok) {
-          const data = await openAiResponse.json();
-          const choice = data.choices?.[0];
-          const contentText = choice?.message?.content;
-
-          if (contentText) {
-            const parsed = JSON.parse(contentText);
-            const hasCoords = typeof parsed.x === "number" && typeof parsed.y === "number";
-
-            detectedToolName = parsed.detectedTool ? String(parsed.detectedTool) : undefined;
-
-            const visualHighlight = hasCoords
-              ? {
-                  x: Math.max(0.0, Math.min(1.0, parsed.x)),
-                  y: Math.max(0.0, Math.min(1.0, parsed.y)),
-                  label: parsed.label ? String(parsed.label) : undefined,
-                }
-              : undefined;
-
-            const assistantMessageId: Id<"messages"> = await ctx.runMutation(
-              api.messages.save,
-              {
-                conversationId: args.conversationId,
-                role: "assistant",
-                content: parsed.explanation ?? "He localizado la herramienta en tu pantalla.",
-                detectedTool: detectedToolName,
-                visualHighlight,
-              }
-            );
-
-            return {
-              userMessageId,
-              assistantMessageId,
-              content: parsed.explanation ?? "He localizado la herramienta en tu pantalla.",
-              detectedTool: detectedToolName,
-              visualHighlight,
-            };
-          }
-        } else {
-          const errData = await openAiResponse.text();
-          console.error("OpenAI API error response:", openAiResponse.status, errData);
-        }
-      } catch (err) {
-        console.error("Error al procesar con OpenAI Vision y RAG:", err);
+      if (!openAiResponse.ok) {
+        const errData = await openAiResponse.text();
+        throw new Error(`OpenAI Vision error (${openAiResponse.status}): ${errData}`);
       }
+
+      const data = await openAiResponse.json();
+      const contentText = data.choices?.[0]?.message?.content;
+      if (!contentText) {
+        throw new Error("OpenAI Vision devolvió una respuesta vacía");
+      }
+
+      const parsed = JSON.parse(contentText);
+      const hasCoords = typeof parsed.x === "number" && typeof parsed.y === "number";
+      const detectedToolName = parsed.detectedTool ? String(parsed.detectedTool) : undefined;
+      const visualHighlight = hasCoords
+        ? {
+            x: Math.max(0.0, Math.min(1.0, parsed.x)),
+            y: Math.max(0.0, Math.min(1.0, parsed.y)),
+            label: parsed.label ? String(parsed.label) : undefined,
+          }
+        : undefined;
+
+      const explanation = parsed.explanation ?? "He localizado la herramienta en tu pantalla.";
+      const assistantMessageId = await ctx.runMutation(internal.messages.save, {
+        conversationId: args.conversationId,
+        role: "assistant",
+        content: explanation,
+        detectedTool: detectedToolName,
+        visualHighlight,
+      });
+
+      return {
+        userMessageId,
+        assistantMessageId,
+        content: explanation,
+        detectedTool: detectedToolName,
+        visualHighlight,
+      };
     }
 
-    // B2. Sin imagen pero con clave: Chat de texto con el tutor Michi enriquecido con RAG y memoria
     if (!args.imageBase64 && apiKey) {
+      const history = await ctx.runQuery(api.messages.list, {
+        conversationId: args.conversationId,
+      });
+      const priorTurns = history
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .slice(-12)
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+      let textRagSnippet = "";
       try {
-        const history = await ctx.runQuery(api.messages.list, {
-          conversationId: args.conversationId,
+        const docs = await ctx.runAction(internal.rag.searchDocs, {
+          query: args.content,
+          limit: 2,
         });
-        const priorTurns = history
-          .filter((m) => m.role === "user" || m.role === "assistant")
-          .slice(-12)
-          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-
-        // Consultar RAG para complementar con documentación técnica si aplica
-        let textRagSnippet = "";
-        try {
-          const docs = await ctx.runAction(api.rag.searchDocs, {
-            query: args.content,
-            limit: 2,
-          });
-          if (docs && docs.length > 0) {
-            textRagSnippet = docs.map((d) => `[${d.title}]: ${d.content}`).join("\n");
-          }
-        } catch {
-          // Ignorar si el RAG no devuelve docs
+        if (docs.length > 0) {
+          textRagSnippet = docs.map((d) => `[${d.title}]: ${d.content}`).join("\n");
         }
-
-        const systemPrompt =
-          "Eres Michi, un tutor personal cálido, claro y motivador. Explicas cualquier " +
-          "tema paso a paso, con ejemplos concretos y lenguaje sencillo. Respondes siempre " +
-          "en español. Si la pregunta es ambigua, pide una aclaración breve. Mantén las " +
-          "respuestas enfocadas (unas 180 palabras como máximo, salvo que pidan más detalle).\n\n" +
-          (textRagSnippet ? `INFORMACIÓN DE REFERENCIA:\n${textRagSnippet}` : "");
-
-        const chatResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey.trim()}`,
-          },
-          body: JSON.stringify({
-            model: model,
-            temperature: 0.4,
-            max_tokens: 600,
-            messages: [{ role: "system", content: systemPrompt }, ...priorTurns],
-          }),
-        });
-
-        if (chatResponse.ok) {
-          const data = await chatResponse.json();
-          const reply: string | undefined = data.choices?.[0]?.message?.content?.trim();
-          if (reply) {
-            const assistantMessageId: Id<"messages"> = await ctx.runMutation(api.messages.save, {
-              conversationId: args.conversationId,
-              role: "assistant",
-              content: reply,
-            });
-            return { userMessageId, assistantMessageId, content: reply };
-          }
-        } else {
-          const errData = await chatResponse.text();
-          console.error("OpenAI API error (texto):", chatResponse.status, errData);
-        }
-      } catch (err) {
-        console.error("Error al procesar texto con OpenAI:", err);
+      } catch {
+        // RAG opcional
       }
+
+      const systemPrompt =
+        "Eres Michi, un tutor personal cálido, claro y motivador. Explicas cualquier " +
+        "tema paso a paso, con ejemplos concretos y lenguaje sencillo. Respondes siempre " +
+        "en español. Si la pregunta es ambigua, pide una aclaración breve. Mantén las " +
+        "respuestas enfocadas (unas 180 palabras como máximo, salvo que pidan más detalle).\n\n" +
+        (textRagSnippet ? `INFORMACIÓN DE REFERENCIA:\n${textRagSnippet}` : "");
+
+      const chatResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey.trim()}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.4,
+          max_tokens: 600,
+          messages: [{ role: "system", content: systemPrompt }, ...priorTurns],
+        }),
+      });
+
+      if (!chatResponse.ok) {
+        const errData = await chatResponse.text();
+        throw new Error(`OpenAI chat error (${chatResponse.status}): ${errData}`);
+      }
+
+      const data = await chatResponse.json();
+      const reply: string | undefined = data.choices?.[0]?.message?.content?.trim();
+      if (!reply) {
+        throw new Error("OpenAI chat devolvió una respuesta vacía");
+      }
+
+      const assistantMessageId = await ctx.runMutation(internal.messages.save, {
+        conversationId: args.conversationId,
+        role: "assistant",
+        content: reply,
+      });
+      return { userMessageId, assistantMessageId, content: reply };
     }
 
-    // C. Respuesta de fallback / texto conversacional (si no hay clave)
     const defaultResponse = args.imageBase64
-      ? "He recibido tu captura de pantalla. En este momento el servicio de inferencia está funcionando en modo demostración. Puedes configurar OPENAI_API_KEY para detección en tiempo real."
+      ? "He recibido tu captura de pantalla. En este momento el servicio de inferencia está funcionando en modo demostración. Configura OPENAI_API_KEY para detección en tiempo real."
       : `He recibido tu consulta: "${args.content}". Puedes hacer preguntas sobre cualquier software o adjuntar una captura de tu pantalla para que te señale el botón exacto.`;
 
-    const assistantMessageId: Id<"messages"> = await ctx.runMutation(api.messages.save, {
+    const assistantMessageId = await ctx.runMutation(internal.messages.save, {
       conversationId: args.conversationId,
       role: "assistant",
       content: defaultResponse,

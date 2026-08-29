@@ -1,56 +1,45 @@
-import { mutation, query } from "./_generated/server";
-import { v, ConvexError } from "convex/values";
-import { findAccountBySessionToken } from "./lib/accountSession";
+import { internalQuery, mutation, query } from "./_generated/server";
+import { v } from "convex/values";
+import { requireAuthUserId, requireConversationAccess } from "./lib/authorization";
 
-// Listar conversaciones de la cuenta con sesión activa
 export const list = query({
-  args: { sessionToken: v.string() },
-  handler: async (ctx, { sessionToken }) => {
-    const account = await findAccountBySessionToken(ctx, sessionToken);
-    if (!account) {
-      return [];
-    }
-
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireAuthUserId(ctx);
     return await ctx.db
       .query("conversations")
-      .withIndex("by_account", (q) => q.eq("accountId", account._id))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
       .collect();
   },
 });
 
-// Obtener una conversación por su ID
 export const get = query({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.conversationId);
+    return await requireConversationAccess(ctx, args.conversationId);
   },
 });
 
-// Crear una nueva conversación ligada a la cuenta
 export const create = mutation({
   args: {
     title: v.string(),
-    sessionToken: v.string(),
   },
   handler: async (ctx, args) => {
-    const account = await findAccountBySessionToken(ctx, args.sessionToken);
-    if (!account) {
-      throw new ConvexError("Necesitas iniciar sesión para crear una conversación.");
-    }
-
+    const userId = await requireAuthUserId(ctx);
     return await ctx.db.insert("conversations", {
-      accountId: account._id,
+      userId,
       title: args.title,
       createdAt: Date.now(),
     });
   },
 });
 
-// Eliminar una conversación y sus mensajes asociados
 export const remove = mutation({
   args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
+    await requireConversationAccess(ctx, args.conversationId);
+
     const messages = await ctx.db
       .query("messages")
       .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
@@ -61,5 +50,12 @@ export const remove = mutation({
     }
 
     await ctx.db.delete(args.conversationId);
+  },
+});
+
+export const assertAccess = internalQuery({
+  args: { conversationId: v.id("conversations") },
+  handler: async (ctx, args) => {
+    await requireConversationAccess(ctx, args.conversationId);
   },
 });

@@ -5,11 +5,9 @@ import { auth } from "./auth";
 
 const http = httpRouter();
 
-// 1. Integrar rutas oficiales de autenticación de Convex Auth (/api/auth/*)
 auth.addHttpRoutes(http);
 
-// Función auxiliar para respuestas JSON con CORS
-function corsResponse(body: any, status = 200) {
+function corsResponse(body: unknown, status = 200) {
   return new Response(body === null ? null : JSON.stringify(body), {
     status,
     headers: {
@@ -21,12 +19,38 @@ function corsResponse(body: any, status = 200) {
   });
 }
 
-// Handler genérico de pre-flight OPTIONS
+function errorStatusFromMessage(message: string): number {
+  if (message === "No autenticado") return 401;
+  if (message === "No tienes acceso a esta conversación") return 403;
+  if (message === "Conversación no encontrada") return 404;
+  return 500;
+}
+
+function getErrorMessage(err: unknown): string {
+  if (typeof err === "object" && err !== null && "data" in err) {
+    const data = (err as { data: unknown }).data;
+    if (typeof data === "string") return data;
+  }
+  if (err instanceof Error) return err.message;
+  return "Error interno del servidor";
+}
+
+function handleConvexError(err: unknown) {
+  const message = getErrorMessage(err);
+  const status = errorStatusFromMessage(message);
+  return corsResponse({ success: false, error: message }, status);
+}
+
+async function requireHttpAuth(ctx: { auth: { getUserIdentity: () => Promise<unknown> } }) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    return corsResponse({ success: false, error: "No autenticado" }, 401);
+  }
+  return null;
+}
+
 const handleOptions = httpAction(async () => corsResponse(null, 204));
 
-// ---------------------------------------------------------------------------
-// 2. GET /api/health
-// ---------------------------------------------------------------------------
 http.route({
   path: "/api/health",
   method: "OPTIONS",
@@ -41,72 +65,49 @@ http.route({
       status: "ok",
       timestamp: Date.now(),
       version: "1.0.0",
-      service: "Vision Guide Convex Backend",
+      service: "Michi Teach Convex Backend",
     });
   }),
 });
 
-// ---------------------------------------------------------------------------
-// 3. /api/conversations (GET y POST)
-// ---------------------------------------------------------------------------
 http.route({
   path: "/api/conversations",
   method: "OPTIONS",
   handler: handleOptions,
 });
 
-function sessionTokenFromRequest(request: Request, payload?: { sessionToken?: string }) {
-  const header = request.headers.get("Authorization") || "";
-  const bearer = header.match(/^Bearer\s+(.+)$/i);
-  return bearer?.[1] || payload?.sessionToken || "";
-}
-
-// GET /api/conversations: Listar hilos de conversación
 http.route({
   path: "/api/conversations",
   method: "GET",
-  handler: httpAction(async (ctx, request) => {
+  handler: httpAction(async (ctx) => {
+    const authError = await requireHttpAuth(ctx);
+    if (authError) return authError;
     try {
-      const conversations = await ctx.runQuery(api.conversations.list, {
-        sessionToken: sessionTokenFromRequest(request),
-      });
+      const conversations = await ctx.runQuery(api.conversations.list, {});
       return corsResponse(conversations);
-    } catch (err: any) {
-      return corsResponse({ success: false, error: err?.message ?? "Error al listar conversaciones" }, 500);
+    } catch (err) {
+      return handleConvexError(err);
     }
   }),
 });
 
-// POST /api/conversations: Crear un nuevo hilo
 http.route({
   path: "/api/conversations",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
+    const authError = await requireHttpAuth(ctx);
+    if (authError) return authError;
     try {
       const payload = await request.json();
       const title = payload.title ?? "Nueva Conversación";
-      const conversationId = await ctx.runMutation(api.conversations.create, {
-        title,
-        sessionToken: sessionTokenFromRequest(request, payload),
-      });
-
-      return corsResponse(
-        {
-          _id: conversationId,
-          title,
-          createdAt: Date.now(),
-        },
-        201
-      );
-    } catch (err: any) {
-      return corsResponse({ success: false, error: err?.message ?? "Error al crear conversación" }, 500);
+      const conversationId = await ctx.runMutation(api.conversations.create, { title });
+      return corsResponse({ _id: conversationId, title, createdAt: Date.now() }, 201);
+    } catch (err) {
+      return handleConvexError(err);
     }
   }),
 });
 
-// ---------------------------------------------------------------------------
-// 4. POST /api/chat: Enviar mensaje al chat con IA y coordenadas
-// ---------------------------------------------------------------------------
 http.route({
   path: "/api/chat",
   method: "OPTIONS",
@@ -117,6 +118,8 @@ http.route({
   path: "/api/chat",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
+    const authError = await requireHttpAuth(ctx);
+    if (authError) return authError;
     try {
       const payload = await request.json();
       if (!payload.conversationId || !payload.content) {
@@ -137,17 +140,15 @@ http.route({
         userMessageId: result.userMessageId,
         assistantMessageId: result.assistantMessageId,
         content: result.content,
+        detectedTool: result.detectedTool,
         visualHighlight: result.visualHighlight,
       });
-    } catch (err: any) {
-      return corsResponse({ success: false, error: err?.message ?? "Error interno del servidor" }, 500);
+    } catch (err) {
+      return handleConvexError(err);
     }
   }),
 });
 
-// ---------------------------------------------------------------------------
-// 5. POST /api/analyze: Análisis visual directo de captura de pantalla
-// ---------------------------------------------------------------------------
 http.route({
   path: "/api/analyze",
   method: "OPTIONS",
@@ -158,6 +159,8 @@ http.route({
   path: "/api/analyze",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
+    const authError = await requireHttpAuth(ctx);
+    if (authError) return authError;
     try {
       const payload = await request.json();
       if (!payload.imageBase64 || !payload.question) {
@@ -167,12 +170,10 @@ http.route({
         );
       }
 
-      // Si no viene conversationId, crear uno temporal para la sesión de análisis
       let convId = payload.conversationId;
       if (!convId) {
         convId = await ctx.runMutation(api.conversations.create, {
           title: "Análisis Visual Rápido",
-          sessionToken: sessionTokenFromRequest(request, payload),
         });
       }
 
@@ -186,10 +187,11 @@ http.route({
         success: true,
         explanation: result.content,
         visualHighlight: result.visualHighlight,
+        detectedTool: result.detectedTool,
         conversationId: convId,
       });
-    } catch (err: any) {
-      return corsResponse({ success: false, error: err?.message ?? "Error al analizar imagen" }, 500);
+    } catch (err) {
+      return handleConvexError(err);
     }
   }),
 });

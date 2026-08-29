@@ -1,9 +1,8 @@
-import { action, internalMutation, internalQuery } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
-// Helper para generar embeddings con OpenAI text-embedding-3-small (1536 dimensiones)
 async function generateEmbedding(text: string, apiKey: string): Promise<number[]> {
   const response = await fetch("https://api.openai.com/v1/embeddings", {
     method: "POST",
@@ -26,7 +25,6 @@ async function generateEmbedding(text: string, apiKey: string): Promise<number[]
   return data.data[0].embedding;
 }
 
-// 1. Query interna para recuperar documentos completos por sus IDs
 export const fetchDocsByIds = internalQuery({
   args: { ids: v.array(v.id("documents")) },
   handler: async (ctx, args) => {
@@ -41,7 +39,18 @@ export const fetchDocsByIds = internalQuery({
   },
 });
 
-// 2. Mutation interna para insertar un documento vectorial
+export const findByToolTitle = internalQuery({
+  args: { tool: v.string(), title: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("documents")
+      .withIndex("by_tool_title", (q) =>
+        q.eq("tool", args.tool.toLowerCase()).eq("title", args.title)
+      )
+      .unique();
+  },
+});
+
 export const saveDoc = internalMutation({
   args: {
     tool: v.string(),
@@ -59,8 +68,7 @@ export const saveDoc = internalMutation({
   },
 });
 
-// 3. Action para buscar contexto técnico relevante usando Convex Vector Search
-export const searchDocs = action({
+export const searchDocs = internalAction({
   args: {
     query: v.string(),
     tool: v.optional(v.string()),
@@ -70,16 +78,13 @@ export const searchDocs = action({
     ctx,
     args
   ): Promise<Array<{ title: string; content: string; tool: string; score: number }>> => {
-    const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       return [];
     }
 
     try {
-      // A. Generar embedding de la duda del usuario
       const queryEmbedding = await generateEmbedding(args.query, apiKey);
-
-      // B. Búsqueda vectorial en el índice 'by_embedding'
       const searchLimit = args.limit ?? 3;
       const targetTool = args.tool?.toLowerCase();
 
@@ -93,7 +98,6 @@ export const searchDocs = action({
         return [];
       }
 
-      // C. Obtener el contenido de los documentos encontrados
       const docIds = searchResults.map((r) => r._id as Id<"documents">);
       const docs = await ctx.runQuery(internal.rag.fetchDocsByIds, { ids: docIds });
 
@@ -110,17 +114,15 @@ export const searchDocs = action({
   },
 });
 
-// 4. Action administrativa para poblar la base de conocimiento vectorial con documentación técnica oficial
-export const seedDocs = action({
+export const seedDocs = internalAction({
   args: {},
-  handler: async (ctx): Promise<{ success: boolean; insertedCount: number }> => {
-    const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+  handler: async (ctx): Promise<{ success: boolean; insertedCount: number; skippedCount: number }> => {
+    const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      throw new Error("No hay API Key configurada para generar embeddings");
+      throw new Error("No hay OPENAI_API_KEY configurada para generar embeddings");
     }
 
     const initialDocs = [
-      // --- DAVINCI RESOLVE ---
       {
         tool: "davinci",
         title: "Herramienta de Cuchilla (Blade Edit Mode)",
@@ -145,8 +147,6 @@ export const seedDocs = action({
         content:
           "El ajuste magnético (Snapping) en la línea de tiempo de DaVinci Resolve permite que los cortes y cabezales se alineen exactamente con los bordes de los clips. Se activa y desactiva con el atajo de teclado 'N'. Su ícono es una herradura de imán ubicada en la barra de herramientas central.",
       },
-
-      // --- BLENDER ---
       {
         tool: "blender",
         title: "Alternar entre Modo Objeto y Modo Edición",
@@ -171,8 +171,6 @@ export const seedDocs = action({
         content:
           "Para cambiar entre los modos de visualización de sombreado (Wireframe, Solid, Material Preview, Rendered), presiona la tecla 'Z' para abrir el menú circular de sombreado, o haz clic en las 4 esferas ubicadas en la esquina superior derecha del Viewport 3D.",
       },
-
-      // --- CAPCUT DESKTOP ---
       {
         tool: "capcut",
         title: "Dividir Clip (Split Tool)",
@@ -185,8 +183,6 @@ export const seedDocs = action({
         content:
           "En CapCut Desktop, para añadir un keyframe a un clip, selecciónalo en el timeline y dirígete al panel derecho en la pestaña 'Video' -> 'Basic'. Haz clic en el ícono de rombo/diamante situado al lado de 'Scale' (Escala) o 'Position' (Posición). El rombo cambiará a color azul/verde indicando que el keyframe está activo.",
       },
-
-      // --- ADOBE PHOTOSHOP ---
       {
         tool: "photoshop",
         title: "Herramienta de Selección Rápida y Mover",
@@ -199,8 +195,6 @@ export const seedDocs = action({
         content:
           "Para recortar o cambiar el lienzo en Adobe Photoshop, el atajo de teclado es 'C'. Aparecerá un marco de ajuste sobre el lienzo que puedes redimensionar antes de presionar 'Enter' para confirmar el recorte.",
       },
-
-      // --- ADOBE PREMIERE PRO ---
       {
         tool: "premiere",
         title: "Herramienta Cuchilla (Razor Tool)",
@@ -209,18 +203,29 @@ export const seedDocs = action({
       },
     ];
 
-    let count = 0;
+    let insertedCount = 0;
+    let skippedCount = 0;
+
     for (const doc of initialDocs) {
+      const existing = await ctx.runQuery(internal.rag.findByToolTitle, {
+        tool: doc.tool,
+        title: doc.title,
+      });
+      if (existing) {
+        skippedCount++;
+        continue;
+      }
+
       const embedding = await generateEmbedding(`${doc.title}. ${doc.content}`, apiKey);
       await ctx.runMutation(internal.rag.saveDoc, {
         tool: doc.tool,
         title: doc.title,
         content: doc.content,
-        embedding: embedding,
+        embedding,
       });
-      count++;
+      insertedCount++;
     }
 
-    return { success: true, insertedCount: count };
+    return { success: true, insertedCount, skippedCount };
   },
 });
