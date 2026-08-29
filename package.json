@@ -12,8 +12,8 @@
     "start": "tauri dev",
     "desktop": "tauri dev",
     "desktop:build": "tauri build",
-    "convex:dev": "convex dev",
-    "convex:deploy": "convex deploy"
+    "convex:dev": "npm run dev --prefix backend",
+    "convex:deploy": "npm exec --prefix backend -- convex deploy"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

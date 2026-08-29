@@ -9,6 +9,7 @@ use std::sync::Mutex;
 #[derive(Clone, Copy)]
 struct ExpandedWindow {
     size: PhysicalSize<u32>,
+    position: PhysicalPosition<i32>,
 }
 
 struct CollapseState(Mutex<Option<ExpandedWindow>>);
@@ -30,7 +31,8 @@ fn set_collapsed(
         // `set_size` cambia el área interior. Guardar `outer_size` aquí hacía que
         // la sombra/borde se sumara otra vez al expandir en cada ciclo.
         let size = window.inner_size().map_err(|error| error.to_string())?;
-        *expanded = Some(ExpandedWindow { size });
+        let position = window.outer_position().map_err(|error| error.to_string())?;
+        *expanded = Some(ExpandedWindow { size, position });
 
         let scale = window.scale_factor().map_err(|error| error.to_string())?;
         let collapsed_width = (38.0 * scale).round() as u32;
@@ -56,18 +58,10 @@ fn set_collapsed(
     } else if let Some(previous) = expanded.take() {
         window.set_resizable(true).map_err(|error| error.to_string())?;
         window.set_size(previous.size).map_err(|error| error.to_string())?;
-        let scale = window.scale_factor().map_err(|error| error.to_string())?;
-        let monitor = window
-            .current_monitor()
-            .map_err(|error| error.to_string())?
-            .ok_or("No se encontró un monitor")?;
-        let work_area = monitor.work_area();
-        let margin = (10.0 * scale).round() as i32;
-        let fixed_x = work_area.position.x + work_area.size.width as i32 - previous.size.width as i32 - margin;
-        let fixed_y = work_area.position.y + (work_area.size.height as i32 - previous.size.height as i32) / 2;
         window
-            .set_position(PhysicalPosition::new(fixed_x, fixed_y))
+            .set_position(previous.position)
             .map_err(|error| error.to_string())?;
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
         window
             .set_min_size(Some(PhysicalSize::new(
                 (300.0 * scale).round() as u32,
@@ -142,14 +136,14 @@ fn place_on_right(window: &WebviewWindow) -> Result<(), String> {
         .map_err(|error| error.to_string())?
         .ok_or("No se encontró un monitor")?;
     let scale = monitor.scale_factor();
-    let (logical_width, logical_height) = (390.0, 720.0);
-    let width = (logical_width * scale) as u32;
-    let height = (logical_height * scale) as u32;
+    let work_area = monitor.work_area();
     let margin = (10.0 * scale) as i32;
-    let monitor_position = monitor.position();
-    let monitor_size = monitor.size();
-    let x = monitor_position.x + monitor_size.width as i32 - width as i32 - margin;
-    let y = monitor_position.y + (monitor_size.height as i32 - height as i32) / 2;
+    let max_width = (work_area.size.width as i32 - margin * 2).max((300.0 * scale) as i32) as u32;
+    let max_height = (work_area.size.height as i32 - margin * 2).max((420.0 * scale) as i32) as u32;
+    let width = ((360.0 * scale) as u32).min(max_width);
+    let height = ((640.0 * scale) as u32).min(max_height);
+    let x = work_area.position.x + work_area.size.width as i32 - width as i32 - margin;
+    let y = work_area.position.y + (work_area.size.height as i32 - height as i32) / 2;
 
     window
         .set_size(PhysicalSize::new(width, height))
