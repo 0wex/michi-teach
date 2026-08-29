@@ -3,6 +3,8 @@ import cuteCatGif from './assets/cute-cat-white.gif';
 import { ConvexClient } from 'convex/browser';
 import { anyApi } from 'convex/server';
 import { invoke } from '@tauri-apps/api/core';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import {
   createIcons,
   Minus,
@@ -79,6 +81,35 @@ function escapeHtml(value) {
   const div = document.createElement('div');
   div.textContent = value ?? '';
   return div.innerHTML;
+}
+
+marked.use({
+  gfm: true,
+  breaks: true,
+  renderer: {
+    html() {
+      return '';
+    },
+  },
+});
+
+const MARKDOWN_TAGS = [
+  'p', 'br', 'strong', 'em', 'b', 'i', 'u', 's', 'del',
+  'code', 'pre', 'ul', 'ol', 'li', 'blockquote', 'hr',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'span',
+];
+
+function renderMarkdown(content) {
+  const raw = String(content ?? '');
+  try {
+    const html = marked.parse(raw, { async: false });
+    return DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: MARKDOWN_TAGS,
+      ALLOWED_ATTR: ['href', 'title', 'class', 'rel', 'target'],
+    });
+  } catch {
+    return `<p>${escapeHtml(raw)}</p>`;
+  }
 }
 
 function formatTime(value) {
@@ -284,17 +315,19 @@ function messageMarkup(message) {
   const shot = message.screenshotUrl
     ? `<img class="shot" alt="Captura adjunta" src="${escapeHtml(message.screenshotUrl)}" />`
     : '';
-  return `<div class="message ${isUser ? 'user-message' : 'lumi-message'}"><div class="bubble">${shot}<p>${escapeHtml(message.content)}</p>${pin}<small>${formatTime(message.createdAt)}</small></div></div>`;
+  return `<div class="message ${isUser ? 'user-message' : 'lumi-message'}"><div class="bubble">${shot}<div class="md">${renderMarkdown(message.content)}</div>${pin}<small>${formatTime(message.createdAt)}</small></div></div>`;
 }
 
 function renderMessages(messages) {
   const typing = chat.querySelector('.typing-row');
-  if (!messages?.length) {
+  const visible = (messages || []).filter((item) => item.role !== 'system');
+  if (!visible.length) {
     if (!typing) renderEmptyChat();
     return;
   }
-  chat.innerHTML = messages.filter((item) => item.role !== 'system').map(messageMarkup).join('');
-  if (typing) chat.appendChild(typing);
+  chat.innerHTML = visible.map(messageMarkup).join('');
+  const lastIsAssistant = visible[visible.length - 1]?.role === 'assistant';
+  if (typing && sending && !lastIsAssistant) chat.appendChild(typing);
   chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
 }
 

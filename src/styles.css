@@ -315,19 +315,99 @@ button { color: inherit; }
 .hero h1 { font-size: 28px; margin: 6px 0 8px; }
 .hero p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; letter-spacing: 0; text-transform: none; }
 
-.message { display: flex; align-items: flex-end; gap: 8px; margin: 12px 0; animation: rise 0.22s ease both; }
+.message { display: flex; align-items: stretch; gap: 8px; width: 100%; margin: 12px 0; animation: rise 0.22s ease both; }
 
 .bubble {
-  max-width: 78%;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 10px 12px 8px;
   background: transparent;
   border: 1px solid var(--rule);
 }
 .bubble p { margin: 0; font-size: 12.5px; line-height: 1.5; letter-spacing: 0; text-transform: none; }
 .bubble small { display: block; margin-top: 6px; color: var(--muted); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
-.user-message { justify-content: flex-end; }
+.user-message { justify-content: stretch; }
 .user-message .bubble { background: var(--user); color: var(--on-user); border-color: var(--user); }
 .user-message small { color: color-mix(in srgb, var(--on-user) 70%, transparent); }
+
+.bubble .md {
+  font-size: 12.5px;
+  line-height: 1.55;
+  letter-spacing: 0;
+  text-transform: none;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.bubble .md > :first-child { margin-top: 0; }
+.bubble .md > :last-child { margin-bottom: 0; }
+.bubble .md p + p { margin-top: 8px; }
+.bubble .md strong, .bubble .md b { font-weight: 700; }
+.bubble .md em { font-style: italic; }
+.bubble .md h1,
+.bubble .md h2,
+.bubble .md h3,
+.bubble .md h4,
+.bubble .md h5,
+.bubble .md h6 {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.35;
+}
+.bubble .md h1 { font-size: 14px; }
+.bubble .md ul,
+.bubble .md ol {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.bubble .md li { margin: 3px 0; }
+.bubble .md li > p { display: inline; }
+.bubble .md blockquote {
+  margin: 8px 0;
+  padding: 0 0 0 10px;
+  border-left: 2px solid var(--rule);
+  color: var(--muted);
+}
+.bubble .md hr {
+  margin: 10px 0;
+  border: 0;
+  border-top: 1px solid var(--rule);
+}
+.bubble .md a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.bubble .md :not(pre) > code {
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", Menlo, monospace;
+  font-size: 11px;
+  padding: 1px 4px;
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+.bubble .md pre {
+  margin: 8px 0;
+  padding: 8px 10px;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--ink) 5%, var(--paper));
+}
+.bubble .md pre code {
+  font-family: "SFMono-Regular", "Consolas", "Liberation Mono", Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 0;
+  border: 0;
+  background: none;
+  white-space: pre;
+}
+.user-message .bubble .md blockquote { color: color-mix(in srgb, var(--on-user) 72%, transparent); border-left-color: color-mix(in srgb, var(--on-user) 28%, transparent); }
+.user-message .bubble .md hr { border-top-color: color-mix(in srgb, var(--on-user) 22%, transparent); }
+.user-message .bubble .md :not(pre) > code,
+.user-message .bubble .md pre {
+  border-color: color-mix(in srgb, var(--on-user) 22%, transparent);
+  background: color-mix(in srgb, var(--on-user) 10%, transparent);
+}
 
 .shot { display: block; width: 100%; max-height: 140px; object-fit: cover; margin-bottom: 8px; border: 1px solid var(--rule); }
 .pin {
@@ -501,7 +581,6 @@ button { color: inherit; }
   .brand span, .status-row #statusText { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .quick-actions small { display: none; }
   .composer .mic { display: none; }
-  .bubble { max-width: 88%; }
 }
 @media (max-width: 315px) {
   .brand span, .status-row #statusText { display: none; }
