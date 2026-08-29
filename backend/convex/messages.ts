@@ -228,6 +228,13 @@ export const sendAndReply = action({
       conversationId: args.conversationId,
     });
 
+    console.log("sendAndReply", {
+      hasApp: !!args.app,
+      app: args.app?.trim() || null,
+      hasImage: !!args.imageBase64,
+      contentLength: args.content.length,
+    });
+
     if (args.imageBase64 && args.imageBase64.length > MAX_IMAGE_BASE64_LENGTH) {
       throw new Error("La imagen supera el tamaño máximo permitido (16 MB).");
     }
