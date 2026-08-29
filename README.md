@@ -12,6 +12,8 @@
   [![Vite](https://img.shields.io/badge/Vite_6-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
   [![Rust](https://img.shields.io/badge/Rust-Native-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 
+  **[Probar Michi Teach en la web](https://michi-teach.vercel.app/)**
+
   Proyecto desarrollado para **The Next Craft Hackathon**.
 </div>
 
