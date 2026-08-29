@@ -79,7 +79,7 @@ button { color: inherit; }
 .titlebar {
   display: grid;
   grid-template-columns: 40px 1fr auto;
-  align-items: start;
+  align-items: center;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--ink);
 }
@@ -113,28 +113,18 @@ button { color: inherit; }
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
   min-width: 0;
   -webkit-app-region: drag;
 }
 
-.brand-mark {
-  width: 36px;
-  height: 36px;
-  overflow: hidden;
-  background: var(--fill);
-  flex: 0 0 36px;
+.brand span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
-
-.brand-mark img {
-  width: 48px;
-  height: 48px;
-  object-fit: contain;
-  object-position: center 22%;
-  transform: translateY(4px);
-}
-
-.brand span { color: var(--muted); }
 
 .auth-system,
 .window-actions {
@@ -145,9 +135,9 @@ button { color: inherit; }
 }
 
 .icon-button,
-.auth-close,
 .more,
 .collapse-handle {
+  flex: 0 0 28px;
   width: 28px;
   height: 28px;
   padding: 0;
@@ -159,13 +149,14 @@ button { color: inherit; }
   cursor: pointer;
 }
 
-.auth-close { font-size: 18px; line-height: 1; width: 18px; height: 18px; }
-.auth-close:hover,
-.icon-button.close:hover { color: var(--on-fill); background: var(--accent-hot); }
 .icon-button:hover,
 .more:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.icon-button.close:hover { color: var(--on-fill); background: var(--accent-hot); }
 .icon-button svg,
-.more svg { width: 15px; }
+.more svg {
+  width: 15px;
+  height: 15px;
+}
 .icon-button[aria-pressed="true"] { color: var(--accent-hot); }
 
 .auth-copy { padding: 0 0 18px; }
@@ -306,13 +297,13 @@ button { color: inherit; }
   color: var(--muted);
   border-bottom: 1px solid var(--rule);
 }
-.online-dot {
-  width: 7px;
-  height: 7px;
-  background: var(--ok);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
+.status-row #statusText {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.online-dot.is-off { background: var(--accent-hot); box-shadow: none; }
 .status-row .more { margin-left: auto; height: 24px; width: 24px; }
 
 .chat {
@@ -325,35 +316,10 @@ button { color: inherit; }
 .chat::-webkit-scrollbar-thumb { background: var(--rule); }
 
 .hero { padding: 8px 0 18px; border-bottom: 1px solid var(--rule); margin-bottom: 8px; }
-.mascot-wrap {
-  position: relative;
-  width: 96px;
-  height: 84px;
-  margin: 0 0 10px;
-  background: var(--fill);
-}
-.mascot-wrap img {
-  width: 108px;
-  height: 108px;
-  object-fit: contain;
-  object-position: center 10%;
-  transform: translate(-6px, -10px);
-}
-.spark { position: absolute; color: var(--accent-hot); font-size: 11px; letter-spacing: 0; z-index: 2; }
-.spark.one { left: -10px; top: 18px; }
-.spark.two { right: -8px; top: 4px; }
 .hero h1 { font-size: 28px; margin: 6px 0 8px; }
 .hero p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; letter-spacing: 0; text-transform: none; }
 
 .message { display: flex; align-items: flex-end; gap: 8px; margin: 12px 0; animation: rise 0.22s ease both; }
-.mini-avatar {
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
-  overflow: hidden;
-  background: var(--fill);
-}
-.mini-avatar img { width: 36px; height: 36px; object-fit: contain; transform: translate(-4px, 1px); }
 
 .bubble {
   max-width: 78%;
@@ -466,8 +432,7 @@ button { color: inherit; }
 }
 .drawer h2 { margin: 0 0 12px; font-size: 28px; font-weight: 500; letter-spacing: -0.06em; }
 .thread-list { display: grid; align-content: start; }
-.thread-list button,
-.account-row {
+.thread-list button {
   display: grid;
   grid-template-columns: 36px 1fr auto;
   gap: 10px;
@@ -481,11 +446,9 @@ button { color: inherit; }
   cursor: pointer;
 }
 .thread-list button.is-active { color: var(--accent-hot); }
-.thread-list small, .account-row small { color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.thread-list small { color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
 .thread-empty { padding: 18px 0; color: var(--muted); font-size: 12px; }
 .drawer-new { width: 100%; margin-top: 16px; }
-.account-row { cursor: default; }
-.account-row b { font-size: 13px; letter-spacing: 0; }
 .sign-out {
   width: 100%;
   margin-top: 8px;
@@ -521,13 +484,13 @@ button { color: inherit; }
 @media (max-width: 350px) {
   .shell { grid-template-rows: 56px 32px 1fr auto; }
   .titlebar, .auth-screen { padding-inline: 12px; }
-  .brand span, .status-row > span:not(.online-dot) { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .brand span, .status-row #statusText { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .quick-actions small { display: none; }
   .composer .mic { display: none; }
   .bubble { max-width: 88%; }
 }
 @media (max-width: 315px) {
-  .brand span, .status-row > span:not(.online-dot) { display: none; }
+  .brand span, .status-row #statusText { display: none; }
   .composer .attach { display: none; }
 }
 @media (max-height: 520px) {

@@ -1,5 +1,4 @@
 import './styles.css';
-import mascot from './assets/lumi-mascot.png';
 import { ConvexClient } from 'convex/browser';
 import { anyApi } from 'convex/server';
 import { invoke } from '@tauri-apps/api/core';
@@ -107,7 +106,7 @@ document.querySelector('#app').innerHTML = `
       <div class="auth-brand" aria-label="Michi Teach">MICHI TEACH</div>
       <div class="auth-system">
         <button class="icon-button" data-theme-toggle type="button" aria-label="Cambiar a modo claro"><i data-lucide="sun"></i></button>
-        <button class="auth-close" id="authClose" type="button" aria-label="Cerrar aplicación">×</button>
+        <button class="icon-button close" id="authClose" type="button" aria-label="Cerrar aplicación"><i data-lucide="x"></i></button>
       </div>
     </header>
     <div class="auth-body">
@@ -150,9 +149,8 @@ document.querySelector('#app').innerHTML = `
     <header class="titlebar" data-tauri-drag-region>
       <span class="auth-index">02</span>
       <div class="brand" data-tauri-drag-region>
-        <div class="brand-mark"><img src="${mascot}" alt="Lumi" /></div>
         <div>
-          <strong>Lumi</strong>
+          <strong>Michi Teach</strong>
           <span id="userLabel">Tu profe personal</span>
         </div>
       </div>
@@ -164,22 +162,14 @@ document.querySelector('#app').innerHTML = `
     </header>
 
     <div class="status-row">
-      <span class="online-dot is-off" id="onlineDot"></span>
-      <span id="statusText">Conectando</span>
-      <button class="more" id="openDrawer" type="button" aria-label="Sesiones y cuenta" aria-expanded="false"><i data-lucide="more-horizontal"></i></button>
+      <span id="statusText">Nueva conversación</span>
+      <button class="more" id="openDrawer" type="button" aria-label="Sesiones" aria-expanded="false"><i data-lucide="more-horizontal"></i></button>
     </div>
 
     <div class="chat" id="chat" aria-live="polite"></div>
 
     <aside class="drawer hidden" id="sessionDrawer">
       <h2>Sesiones</h2>
-      <div class="account-row">
-        <span class="drawer-index" id="userIndex">00</span>
-        <div>
-          <b id="drawerName">Cuenta</b>
-          <small id="drawerEmail">Sin sesión</small>
-        </div>
-      </div>
       <div class="thread-list" id="threadList"></div>
       <button class="drawer-new" id="newConversation" type="button">Nueva conversación <span>+</span></button>
       <button class="sign-out" id="signOut" type="button">Cerrar sesión</button>
@@ -193,11 +183,11 @@ document.querySelector('#app').innerHTML = `
       <form class="composer" id="composer">
         <input class="hidden" id="imageInput" type="file" accept="image/*" />
         <button type="button" class="attach" id="attachButton" aria-label="Adjuntar captura"><i data-lucide="paperclip"></i></button>
-        <textarea id="messageInput" rows="1" maxlength="500" placeholder="Pregúntale algo a Lumi..."></textarea>
+        <textarea id="messageInput" rows="1" maxlength="500" placeholder="Pregúntale algo a Michi Teach..."></textarea>
         <button type="button" class="mic" aria-label="Mensaje de voz" disabled title="Próximamente"><i data-lucide="mic"></i></button>
         <button type="submit" class="send" aria-label="Enviar"><i data-lucide="send"></i></button>
       </form>
-      <p>Lumi puede equivocarse. Verifica la información importante.</p>
+      <p>Michi Teach puede equivocarse. Verifica la información importante.</p>
     </footer>
   </section>
 `;
@@ -260,11 +250,7 @@ installAuth();
 function emptyChatMarkup() {
   return `
     <div class="hero">
-      <div class="mascot-wrap">
-        <span class="spark one">01</span><span class="spark two">02</span>
-        <img src="${mascot}" alt="Lumi, tu búho profesor" />
-      </div>
-      <h1>Hola. Soy Lumi.</h1>
+      <h1>Hola. Soy Michi Teach.</h1>
       <p>Compañero para aprender, practicar<br />y resolver esas dudas difíciles.</p>
     </div>
     <div class="quick-actions" id="quickActions">
@@ -297,8 +283,7 @@ function messageMarkup(message) {
   const shot = message.screenshotUrl
     ? `<img class="shot" alt="Captura adjunta" src="${escapeHtml(message.screenshotUrl)}" />`
     : '';
-  const avatar = isUser ? '' : `<div class="mini-avatar"><img src="${mascot}" alt="" /></div>`;
-  return `<div class="message ${isUser ? 'user-message' : 'lumi-message'}">${avatar}<div class="bubble">${shot}<p>${escapeHtml(message.content)}</p>${pin}<small>${formatTime(message.createdAt)}</small></div></div>`;
+  return `<div class="message ${isUser ? 'user-message' : 'lumi-message'}"><div class="bubble">${shot}<p>${escapeHtml(message.content)}</p>${pin}<small>${formatTime(message.createdAt)}</small></div></div>`;
 }
 
 function renderMessages(messages) {
@@ -318,7 +303,7 @@ function showTyping(show) {
   document.querySelector('#quickActions')?.classList.add('hidden');
   const typing = document.createElement('div');
   typing.className = 'message lumi-message typing-row';
-  typing.innerHTML = `<div class="mini-avatar"><img src="${mascot}" alt="" /></div><div class="bubble typing"><i></i><i></i><i></i></div>`;
+  typing.innerHTML = `<div class="bubble typing"><i></i><i></i><i></i></div>`;
   chat.appendChild(typing);
   chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
 }
@@ -344,20 +329,19 @@ function renderThreads() {
   });
 }
 
-function setStatus(online, text) {
-  document.querySelector('#onlineDot').classList.toggle('is-off', !online);
-  document.querySelector('#statusText').textContent = text;
+function currentConversationTitle() {
+  const current = conversations.find((item) => item._id === conversationId);
+  return current?.title || 'Nueva conversación';
+}
+
+function syncStatusTitle() {
+  document.querySelector('#statusText').textContent = currentConversationTitle();
 }
 
 function showApp(user) {
   viewer = user;
   authScreen.classList.add('auth-hidden');
   assistantShell.classList.remove('app-locked');
-  const name = user?.name || user?.email || 'Lumi';
-  document.querySelector('#userLabel').textContent = name;
-  document.querySelector('#drawerName').textContent = name;
-  document.querySelector('#drawerEmail').textContent = user?.email || 'Sesión activa';
-  document.querySelector('#userIndex').textContent = (user?.name || user?.email || 'L').slice(0, 2).toUpperCase();
   subscribeAppData();
 }
 
@@ -375,6 +359,7 @@ function showAuth(message = '') {
   authStatus.textContent = message;
   authStatus.classList.toggle('is-ok', false);
   renderEmptyChat();
+  syncStatusTitle();
 }
 
 function subscribeAppData() {
@@ -387,9 +372,6 @@ function subscribeAppData() {
       return;
     }
     viewer = user;
-    document.querySelector('#userLabel').textContent = user.name || user.email || 'Lumi';
-    document.querySelector('#drawerName').textContent = user.name || user.email || 'Cuenta';
-    document.querySelector('#drawerEmail').textContent = user.email || 'Sesión activa';
   });
   unsubConversations = convex.onUpdate(anyApi.conversations.list, {}, (items) => {
     conversations = items || [];
@@ -399,6 +381,7 @@ function subscribeAppData() {
       conversationId = null;
       renderEmptyChat();
     }
+    syncStatusTitle();
   });
 }
 
@@ -406,6 +389,7 @@ function openConversation(id) {
   conversationId = id;
   unsubMessages?.();
   renderThreads();
+  syncStatusTitle();
   unsubMessages = convex.onUpdate(anyApi.messages.list, { conversationId: id }, (messages) => {
     renderMessages(messages || []);
   });
@@ -482,7 +466,7 @@ async function sendMessage(text) {
     showTyping(false);
   } catch (error) {
     showTyping(false);
-    chat.insertAdjacentHTML('beforeend', `<div class="message lumi-message"><div class="mini-avatar"><img src="${mascot}" alt="" /></div><div class="bubble"><p>${escapeHtml(mapAuthError(error))}</p><small>Ahora</small></div></div>`);
+    chat.insertAdjacentHTML('beforeend', `<div class="message lumi-message"><div class="bubble"><p>${escapeHtml(mapAuthError(error))}</p><small>Ahora</small></div></div>`);
     chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
   } finally {
     sending = false;
@@ -585,12 +569,9 @@ document.querySelector('#collapseWindow').addEventListener('click', async () => 
 
 async function checkHealth() {
   try {
-    const response = await fetch(`${CONVEX_SITE}/api/health`);
-    if (!response.ok) throw new Error('offline');
-    setStatus(true, viewer ? 'En línea' : 'Listo para entrar');
-  } catch {
-    setStatus(false, 'Sin conexión');
-  }
+    await fetch(`${CONVEX_SITE}/api/health`);
+  } catch {}
+  syncStatusTitle();
 }
 
 async function restoreSession() {
