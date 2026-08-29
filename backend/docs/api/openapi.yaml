@@ -286,11 +286,6 @@ components:
           format: password
           description: Contraseña de la cuenta
           example: secretPassword123
-        preferredTool:
-          type: string
-          enum: [davinci, capcut]
-          default: davinci
-          description: Software de edición preferido
 
     SignInRequest:
       type: object

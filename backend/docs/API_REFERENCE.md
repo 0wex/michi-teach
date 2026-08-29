@@ -25,8 +25,7 @@ Crea una nueva cuenta de usuario con email, contraseña y nombre.
 {
   "name": "Alejandro Editor",
   "email": "editor@visionguide.dev",
-  "password": "secretPassword123",
-  "preferredTool": "davinci"
+  "password": "secretPassword123"
 }
 ```
 
