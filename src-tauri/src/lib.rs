@@ -6,6 +6,11 @@ use tauri::{
 };
 use std::sync::Mutex;
 
+const EXPANDED_MIN_WIDTH: f64 = 360.0;
+const EXPANDED_MIN_HEIGHT: f64 = 640.0;
+const COLLAPSED_WIDTH: f64 = 38.0;
+const COLLAPSED_HEIGHT: f64 = 54.0;
+
 #[derive(Clone, Copy)]
 struct ExpandedWindow {
     size: PhysicalSize<u32>,
@@ -35,8 +40,8 @@ fn set_collapsed(
         *expanded = Some(ExpandedWindow { size, position });
 
         let scale = window.scale_factor().map_err(|error| error.to_string())?;
-        let collapsed_width = (38.0 * scale).round() as u32;
-        let collapsed_height = (54.0 * scale).round() as u32;
+        let collapsed_width = (COLLAPSED_WIDTH * scale).round() as u32;
+        let collapsed_height = (COLLAPSED_HEIGHT * scale).round() as u32;
         let monitor = window
             .current_monitor()
             .map_err(|error| error.to_string())?
@@ -56,18 +61,20 @@ fn set_collapsed(
             .set_position(PhysicalPosition::new(fixed_x, fixed_y))
             .map_err(|error| error.to_string())?;
     } else if let Some(previous) = expanded.take() {
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        let min_width = (EXPANDED_MIN_WIDTH * scale).round() as u32;
+        let min_height = (EXPANDED_MIN_HEIGHT * scale).round() as u32;
         window.set_resizable(true).map_err(|error| error.to_string())?;
-        window.set_size(previous.size).map_err(|error| error.to_string())?;
+        window
+            .set_size(PhysicalSize::new(
+                previous.size.width.max(min_width),
+                previous.size.height.max(min_height),
+            ))
+            .map_err(|error| error.to_string())?;
         window
             .set_position(previous.position)
             .map_err(|error| error.to_string())?;
-        let scale = window.scale_factor().map_err(|error| error.to_string())?;
-        window
-            .set_min_size(Some(PhysicalSize::new(
-                (300.0 * scale).round() as u32,
-                (420.0 * scale).round() as u32,
-            )))
-            .map_err(|error| error.to_string())?;
+        apply_expanded_min_size(&window)?;
     }
 
     Ok(())
@@ -82,12 +89,7 @@ pub fn run() {
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = place_on_right(&window);
-                if let Ok(scale) = window.scale_factor() {
-                    let _ = window.set_min_size(Some(PhysicalSize::new(
-                        (300.0 * scale).round() as u32,
-                        (420.0 * scale).round() as u32,
-                    )));
-                }
+                let _ = apply_expanded_min_size(&window);
             }
 
             let open = MenuItem::with_id(app, "open", "Abrir Lumi", true, None::<&str>)?;
@@ -130,6 +132,17 @@ fn show_lumi(app: &tauri::AppHandle) {
     }
 }
 
+fn apply_expanded_min_size(window: &WebviewWindow) -> Result<(), String> {
+    let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    window
+        .set_min_size(Some(PhysicalSize::new(
+            (EXPANDED_MIN_WIDTH * scale).round() as u32,
+            (EXPANDED_MIN_HEIGHT * scale).round() as u32,
+        )))
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 fn place_on_right(window: &WebviewWindow) -> Result<(), String> {
     let monitor = window
         .current_monitor()
@@ -138,10 +151,10 @@ fn place_on_right(window: &WebviewWindow) -> Result<(), String> {
     let scale = monitor.scale_factor();
     let work_area = monitor.work_area();
     let margin = (10.0 * scale) as i32;
-    let max_width = (work_area.size.width as i32 - margin * 2).max((300.0 * scale) as i32) as u32;
-    let max_height = (work_area.size.height as i32 - margin * 2).max((420.0 * scale) as i32) as u32;
-    let width = ((360.0 * scale) as u32).min(max_width);
-    let height = ((640.0 * scale) as u32).min(max_height);
+    let max_width = (work_area.size.width as i32 - margin * 2).max((EXPANDED_MIN_WIDTH * scale) as i32) as u32;
+    let max_height = (work_area.size.height as i32 - margin * 2).max((EXPANDED_MIN_HEIGHT * scale) as i32) as u32;
+    let width = ((EXPANDED_MIN_WIDTH * scale) as u32).min(max_width);
+    let height = ((EXPANDED_MIN_HEIGHT * scale) as u32).min(max_height);
     let x = work_area.position.x + work_area.size.width as i32 - width as i32 - margin;
     let y = work_area.position.y + (work_area.size.height as i32 - height as i32) / 2;
 
