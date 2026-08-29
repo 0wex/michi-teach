@@ -1,0 +1,234 @@
+:root {
+  --pointer: #d45a42;
+  --pointer-edge: rgba(255, 255, 255, 0.92);
+  --label-bg: rgba(17, 17, 17, 0.92);
+  --label-ink: #f4f1e8;
+  --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  /* La ventana es click-through desde Rust; esto es un segundo cinturón. */
+  pointer-events: none;
+  user-select: none;
+  cursor: none;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.28s ease-out;
+}
+
+#stage.is-visible {
+  opacity: 1;
+}
+
+#pointer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 28px;
+  height: 28px;
+  /* El triángulo apunta a la derecha; rota alrededor de su centro. */
+  transform-origin: 14px 14px;
+  will-change: transform;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.45));
+}
+
+/* Capa de figuras: rects y flechas dibujadas en SVG a tamaño completo. */
+#shapes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
+}
+#shapes .shape {
+  fill: none;
+  stroke: var(--pointer);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#shapes .shape-rect {
+  stroke-dasharray: 10 7;
+  rx: 6;
+  animation: shape-march 0.8s linear infinite;
+}
+#shapes .shape-arrow {
+  marker-end: url(#arrowhead);
+}
+#shapes .shape-in {
+  animation: shape-pop 0.32s ease-out both;
+}
+#shapes .badge-bg {
+  fill: var(--pointer);
+  stroke: none;
+}
+#shapes .badge-text {
+  fill: #fff;
+  stroke: none;
+  font: 700 13px/1 var(--font);
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+#shapes .shape-label {
+  fill: var(--label-ink);
+  stroke: none;
+  font: 600 13px/1 var(--font);
+  paint-order: stroke;
+  stroke: var(--label-bg);
+  stroke-width: 5;
+  stroke-linejoin: round;
+}
+
+@keyframes shape-march {
+  to {
+    stroke-dashoffset: -34;
+  }
+}
+@keyframes shape-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+#label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: 260px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--label-bg);
+  color: var(--label-ink);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 0.22s ease-out,
+    transform 0.22s ease-out;
+}
+
+#label.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Indicador de voz: barra discreta abajo al centro. */
+#voice {
+  position: fixed;
+  left: 50%;
+  bottom: 44px;
+  transform: translateX(-50%) translateY(8px);
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--label-bg);
+  opacity: 0;
+  transition:
+    opacity 0.2s ease-out,
+    transform 0.2s ease-out;
+}
+
+#voice[data-state='listening'],
+#voice[data-state='processing'] {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.voice-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pointer);
+}
+
+#voice[data-state='listening'] .voice-dot {
+  animation: voice-bounce 1s infinite ease-in-out;
+}
+#voice[data-state='listening'] .voice-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+#voice[data-state='listening'] .voice-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+#voice[data-state='processing'] .voice-dot {
+  animation: voice-fade 1.2s infinite ease-in-out;
+}
+#voice[data-state='processing'] .voice-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+#voice[data-state='processing'] .voice-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes voice-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes voice-fade {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #stage,
+  #label,
+  #voice {
+    transition-duration: 0.01ms;
+  }
+  .voice-dot {
+    animation: none !important;
+  }
+}
+
+/* HUD de diagnóstico (activar con localStorage michi.overlayDebug = "1"). */
+#dbg {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  max-width: 46ch;
+  border-radius: 8px;
+  background: rgba(17, 17, 17, 0.86);
+  color: #f4f1e8;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  pointer-events: none;
+}

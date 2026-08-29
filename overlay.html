@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Michi Teach — Overlay</title>
+    <link rel="stylesheet" href="/src/overlay.css" />
+  </head>
+  <body>
+    <div id="stage" aria-hidden="true">
+      <svg id="shapes" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <marker
+            id="arrowhead"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto-start-reverse"
+          >
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--pointer)" />
+          </marker>
+        </defs>
+      </svg>
+      <div id="pointer">
+        <svg viewBox="0 0 28 28" width="28" height="28" aria-hidden="true">
+          <path
+            d="M3 4 L25 14 L3 24 L9 14 Z"
+            fill="var(--pointer)"
+            stroke="var(--pointer-edge)"
+            stroke-width="1.6"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </div>
+      <div id="label"></div>
+    </div>
+    <div id="voice" data-state="idle" aria-hidden="true">
+      <span class="voice-dot"></span>
+      <span class="voice-dot"></span>
+      <span class="voice-dot"></span>
+    </div>
+    <pre id="dbg" hidden></pre>
+    <script type="module" src="/src/overlay.js"></script>
+  </body>
+</html>
