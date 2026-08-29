@@ -121,6 +121,79 @@ function toSources(hits: HybridHit[]): AssistantSource[] {
   return out;
 }
 
+/**
+ * Anotación visual que el overlay dibuja sobre el escritorio. Coordenadas
+ * normalizadas 0..1 respecto a la captura. `point` señala un elemento, `rect`
+ * enmarca una región/panel, `arrow` indica un arrastre o una dirección.
+ */
+type Annotation =
+  | { kind: "point"; x: number; y: number; label?: string; step?: number }
+  | { kind: "rect"; x: number; y: number; w: number; h: number; label?: string; step?: number }
+  | {
+      kind: "arrow";
+      x: number;
+      y: number;
+      x2: number;
+      y2: number;
+      label?: string;
+      step?: number;
+    };
+
+const clamp01 = (n: unknown): number =>
+  Math.max(0, Math.min(1, typeof n === "number" && Number.isFinite(n) ? n : 0));
+
+/** Valida y normaliza el array `annotations` que devuelve el modelo. */
+function parseAnnotations(raw: unknown): Annotation[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Annotation[] = [];
+  for (const item of raw.slice(0, 6)) {
+    if (!item || typeof item !== "object") continue;
+    const a = item as Record<string, unknown>;
+    const label =
+      typeof a.label === "string" && a.label.trim() ? a.label.trim().slice(0, 60) : undefined;
+    const step =
+      typeof a.step === "number" && Number.isFinite(a.step) ? Math.round(a.step) : undefined;
+    const kind = a.kind;
+    if (kind === "rect") {
+      if (typeof a.x !== "number" || typeof a.y !== "number") continue;
+      out.push({
+        kind: "rect",
+        x: clamp01(a.x),
+        y: clamp01(a.y),
+        w: clamp01(a.w),
+        h: clamp01(a.h),
+        label,
+        step,
+      });
+    } else if (kind === "arrow") {
+      if (
+        typeof a.x !== "number" ||
+        typeof a.y !== "number" ||
+        typeof a.x2 !== "number" ||
+        typeof a.y2 !== "number"
+      )
+        continue;
+      out.push({
+        kind: "arrow",
+        x: clamp01(a.x),
+        y: clamp01(a.y),
+        x2: clamp01(a.x2),
+        y2: clamp01(a.y2),
+        label,
+        step,
+      });
+    } else if (kind === "point" || kind === undefined) {
+      if (typeof a.x !== "number" || typeof a.y !== "number") continue;
+      out.push({ kind: "point", x: clamp01(a.x), y: clamp01(a.y), label, step });
+    }
+  }
+  // Ordenar por `step` si viene; los sin step al final en orden de aparición.
+  return out
+    .map((a, i) => ({ a, i }))
+    .sort((p, q) => (p.a.step ?? 99) - (q.a.step ?? 99) || p.i - q.i)
+    .map(({ a }) => a);
+}
+
 function formatContextBlock(hits: HybridHit[]): string {
   if (hits.length === 0) return "";
   return hits
@@ -148,6 +221,7 @@ export const sendAndReply = action({
     content: string;
     detectedTool?: string;
     visualHighlight?: { x: number; y: number; label?: string };
+    annotations?: Annotation[];
     sources: AssistantSource[];
   }> => {
     await ctx.runQuery(internal.conversations.assertAccess, {
@@ -171,6 +245,9 @@ export const sendAndReply = action({
 
     const apiKey = process.env.OPENAI_API_KEY;
     const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+    // Modelo separado para la rama de visión: señalar el centro de un botón
+    // con precisión < 50 px exige más capacidad que el chat de texto normal.
+    const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4o";
     const forceWeb = shouldForceWeb(args.content);
 
     if (args.imageBase64 && apiKey) {
@@ -219,18 +296,35 @@ ${ragContext ? ragContext : "No hay contexto oficial recuperado."}
    - Si el CONTEXTO no cubre la pregunta, responde exactamente: "No tengo informacion oficial verificada para esto" en vez de inventar pasos de UI.
    - Se conciso, claro y motivador (maximo 35 palabras), pensado para guiar en vivo.
 
-4. SENALIZACION VISUAL:
-   - Si la consulta alude a un boton, menu, herramienta o control visible en pantalla, indica sus coordenadas normalizadas (x e y flotantes entre 0.0 y 1.0) del centro exacto del elemento.
-   - Si no hay un elemento puntual que senalar, usa x: null, y: null.
+4. SEÑALIZACIÓN VISUAL (coordenadas NORMALIZADAS 0.0–1.0 respecto a la captura;
+   origen arriba-izquierda; x crece a la derecha, y hacia abajo):
+   - Devuelve un array "annotations" con las marcas que hay que dibujar en pantalla.
+   - Cada marca es un objeto con "kind" y coordenadas:
+       · {"kind":"point","x":..,"y":..} — el CENTRO exacto de un botón/ícono/menú.
+       · {"kind":"rect","x":..,"y":..,"w":..,"h":..} — enmarca un panel o zona
+         (x,y = esquina superior izquierda; w,h = ancho y alto normalizados).
+       · {"kind":"arrow","x":..,"y":..,"x2":..,"y2":..} — una flecha de (x,y) a
+         (x2,y2): un arrastre, un "mueve esto ahí" o "mira aquí".
+   - Añade "label" (1–4 palabras) y "step" (número 1,2,3… en el orden a seguir)
+     cuando la tarea tenga varios pasos.
+   - Usa VARIAS anotaciones para tareas complejas: enmarca la zona con un rect,
+     señala el botón con un point, indica el movimiento con una arrow.
+   - Si no hay nada inequívoco que señalar, devuelve "annotations": [].
+   - Además, copia la primera marca de tipo point (o el centro del primer rect)
+     en los campos sueltos "x","y","label" para compatibilidad; null si no hay.
 
 FORMATO OBLIGATORIO DE RESPUESTA:
 Devuelve UNICAMENTE un JSON valido con esta estructura:
 {
   "detectedTool": "${detectedToolName}",
   "explanation": "Texto explicativo conciso...",
+  "annotations": [
+    { "kind": "rect", "x": 0.62, "y": 0.05, "w": 0.2, "h": 0.1, "label": "Barra de color", "step": 1 },
+    { "kind": "point", "x": 0.7, "y": 0.09, "label": "Inspector", "step": 2 }
+  ],
   "x": number | null,
   "y": number | null,
-  "label": "Nombre del boton o herramienta senalada"
+  "label": "Nombre del elemento principal" | null
 }
 `;
 
@@ -241,10 +335,10 @@ Devuelve UNICAMENTE un JSON valido con esta estructura:
           Authorization: `Bearer ${apiKey.trim()}`,
         },
         body: JSON.stringify({
-          model,
+          model: visionModel,
           response_format: { type: "json_object" },
           temperature: 0.1,
-          max_tokens: 350,
+          max_tokens: 700,
           messages: [
             { role: "system", content: systemPrompt },
             {
@@ -270,17 +364,42 @@ Devuelve UNICAMENTE un JSON valido con esta estructura:
       }
 
       const parsed = JSON.parse(contentText);
-      const hasCoords = typeof parsed.x === "number" && typeof parsed.y === "number";
       const resolvedToolName = parsed.detectedTool
         ? String(parsed.detectedTool)
         : detectedToolName;
-      const visualHighlight = hasCoords
-        ? {
-            x: Math.max(0.0, Math.min(1.0, parsed.x)),
-            y: Math.max(0.0, Math.min(1.0, parsed.y)),
+
+      let annotations = parseAnnotations(parsed.annotations);
+
+      // Compatibilidad: si no hubo annotations pero sí x/y sueltos, crear un
+      // point. Y al revés: el visualHighlight sale de la primera marca útil.
+      const hasLooseCoords = typeof parsed.x === "number" && typeof parsed.y === "number";
+      if (annotations.length === 0 && hasLooseCoords) {
+        annotations = [
+          {
+            kind: "point",
+            x: clamp01(parsed.x),
+            y: clamp01(parsed.y),
             label: parsed.label ? String(parsed.label) : undefined,
+          },
+        ];
+      }
+
+      const primary =
+        annotations.find((a) => a.kind === "point") ??
+        annotations.find((a) => a.kind === "rect");
+      const visualHighlight = primary
+        ? {
+            x: primary.kind === "rect" ? primary.x + primary.w / 2 : primary.x,
+            y: primary.kind === "rect" ? primary.y + primary.h / 2 : primary.y,
+            label: primary.label,
           }
-        : undefined;
+        : hasLooseCoords
+          ? {
+              x: clamp01(parsed.x),
+              y: clamp01(parsed.y),
+              label: parsed.label ? String(parsed.label) : undefined,
+            }
+          : undefined;
 
       const explanation = parsed.explanation ?? "He localizado la herramienta en tu pantalla.";
       const assistantMessageId = await ctx.runMutation(internal.messages.save, {
@@ -297,6 +416,7 @@ Devuelve UNICAMENTE un JSON valido con esta estructura:
         content: explanation,
         detectedTool: resolvedToolName,
         visualHighlight,
+        annotations: annotations.length > 0 ? annotations : undefined,
         sources: toSources(hits),
       };
     }

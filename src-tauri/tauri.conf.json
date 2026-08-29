@@ -10,8 +10,10 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
+        "label": "main",
         "title": "Michi Teach",
         "width": 360,
         "height": 640,
@@ -22,7 +24,8 @@
         "transparent": true,
         "alwaysOnTop": true,
         "center": false,
-        "shadow": true
+        "shadow": true,
+        "contentProtected": true
       }
     ],
     "security": { "csp": null }

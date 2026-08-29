@@ -4,6 +4,7 @@ import pawCursorWhite from './assets/pawboard/paw-cursor-white.png';
 import { ConvexClient } from 'convex/browser';
 import { anyApi } from 'convex/server';
 import { invoke } from '@tauri-apps/api/core';
+import { emit, listen } from '@tauri-apps/api/event';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import {
@@ -16,6 +17,7 @@ import {
   Languages,
   Lightbulb,
   Paperclip,
+  ScanLine,
   Mic,
   Send,
   ChevronLeft,
@@ -72,7 +74,7 @@ function applyTheme(theme) {
 function paintIcons(extra = {}) {
   createIcons({
     icons: {
-      Minus, X, MoreHorizontal, Sparkles, BookOpen, Languages, Lightbulb, Paperclip, Mic, Send,
+      Minus, X, MoreHorizontal, Sparkles, BookOpen, Languages, Lightbulb, Paperclip, ScanLine, Mic, Send,
       ChevronLeft, ChevronRight, Sun, Moon, LogOut, Plus, ...extra,
     },
   });
@@ -215,7 +217,8 @@ document.querySelector('#app').innerHTML = `
       </div>
       <form class="composer" id="composer">
         <input class="hidden" id="imageInput" type="file" accept="image/*" />
-        <button type="button" class="attach" id="attachButton" aria-label="Adjuntar captura"><i data-lucide="paperclip"></i></button>
+        <button type="button" class="attach" id="captureButton" aria-label="Capturar mi pantalla" title="Capturar mi pantalla"><i data-lucide="scan-line"></i></button>
+        <button type="button" class="attach" id="attachButton" aria-label="Adjuntar imagen"><i data-lucide="paperclip"></i></button>
         <img class="composer-cat" src="${cuteCatGif}" alt="" width="32" height="32" aria-hidden="true" />
         <textarea id="messageInput" rows="1" maxlength="500" placeholder="Pregúntale algo a Michi Teach..."></textarea>
         <button type="button" class="mic" aria-label="Mensaje de voz" disabled title="Próximamente"><i data-lucide="mic"></i></button>
@@ -251,6 +254,13 @@ let viewer = null;
 let conversationId = null;
 let conversations = [];
 let pendingImage = null;
+// 'file' cuando viene del clip (se persiste como miniatura en la burbuja) o
+// 'capture' cuando viene del comando nativo `capture_screen` (no se persiste;
+// el overlay es la retroalimentación visual). `null` si no hay imagen.
+let pendingImageSource = null;
+// Dimensiones de la última captura nativa, en píxeles. El overlay las usará
+// para proyectar las coordenadas normalizadas 0..1 que devuelve el backend.
+let captureDimensions = null;
 let sending = false;
 let unsubMessages = null;
 let unsubConversations = null;
@@ -478,7 +488,7 @@ registerForm.addEventListener('submit', (event) => {
   submitAuth('signUp', registerForm);
 });
 
-async function sendMessage(text) {
+async function sendMessage(text, { speakReply = false } = {}) {
   const clean = text.trim();
   if (!clean || sending) return;
   sending = true;
@@ -490,15 +500,18 @@ async function sendMessage(text) {
     showTyping(true);
     input.value = '';
     input.style.height = 'auto';
-    await convex.action(anyApi.messages.sendAndReply, {
+    const wasCapture = pendingImageSource === 'capture';
+    const reply = await convex.action(anyApi.messages.sendAndReply, {
       conversationId,
       content: clean,
       imageBase64: pendingImage || undefined,
     });
     pendingImage = null;
+    pendingImageSource = null;
     attachChip.classList.add('hidden');
     imageInput.value = '';
     showTyping(false);
+    handleAssistantReply(reply, { spoken: speakReply || wasCapture });
   } catch (error) {
     showTyping(false);
     chat.insertAdjacentHTML('beforeend', `<div class="message lumi-message"><div class="bubble"><p>${escapeHtml(mapAuthError(error))}</p><small>Ahora</small></div></div>`);
@@ -507,6 +520,89 @@ async function sendMessage(text) {
     sending = false;
     form.querySelector('.send').disabled = false;
   }
+}
+
+// Tras cada respuesta del asistente: si trae coordenadas, manda el puntero del
+// overlay al elemento; si la consulta vino por captura o por voz, lee la
+// explicación en voz alta. La burbuja de chat sigue actualizándose por la
+// suscripción reactiva; esto es solo la capa visual/sonora extra.
+function handleAssistantReply(reply, { spoken = false } = {}) {
+  if (!reply) return;
+  const hl = reply.visualHighlight;
+  const annotations = Array.isArray(reply.annotations) ? reply.annotations : [];
+  console.info('[michi] respuesta:', {
+    annotations,
+    visualHighlight: hl,
+    detectedTool: reply.detectedTool,
+  });
+  if (annotations.length > 0) {
+    emit('overlay:draw', { annotations })
+      .then(() => console.info('[michi] overlay:draw emitido', annotations.length))
+      .catch((e) => console.warn('[michi] overlay:draw falló', e));
+  } else if (hl && Number.isFinite(hl.x) && Number.isFinite(hl.y)) {
+    const payload = { x: hl.x, y: hl.y, label: hl.label || reply.detectedTool || '' };
+    emit('overlay:point', payload)
+      .then(() => console.info('[michi] overlay:point emitido', payload))
+      .catch((e) => console.warn('[michi] overlay:point falló', e));
+  } else {
+    emit('overlay:clear').catch(() => {});
+  }
+  if (spoken && reply.content) speak(reply.content);
+}
+
+let ttsVoice = null;
+function pickSpanishVoice() {
+  const voices = window.speechSynthesis?.getVoices?.() || [];
+  ttsVoice =
+    voices.find((v) => /^es(-|_|$)/i.test(v.lang) && /female|mónica|monica|paulina/i.test(v.name)) ||
+    voices.find((v) => /^es(-|_|$)/i.test(v.lang)) ||
+    null;
+}
+if (window.speechSynthesis) {
+  pickSpanishVoice();
+  window.speechSynthesis.addEventListener('voiceschanged', pickSpanishVoice);
+}
+
+let ttsAudio = null;
+
+function stopSpeaking() {
+  window.speechSynthesis?.cancel();
+  if (ttsAudio) {
+    ttsAudio.pause();
+    ttsAudio.src = '';
+    ttsAudio = null;
+  }
+}
+
+// Lee el texto en voz alta. Primero intenta Fish Audio (voz neural, vía Convex);
+// si no hay llave configurada o falla, cae a `speechSynthesis` del navegador.
+async function speak(text) {
+  stopSpeaking();
+  try {
+    const res = await convex.action(anyApi.speech.synthesize, { text });
+    if (res?.audioBase64) {
+      ttsAudio = new Audio(`data:${res.mimeType};base64,${res.audioBase64}`);
+      ttsAudio.addEventListener('ended', () => {
+        ttsAudio = null;
+      });
+      await ttsAudio.play();
+      return;
+    }
+  } catch (error) {
+    console.warn('Fish Audio no disponible, uso la voz del navegador:', error);
+  }
+  speakWithBrowser(text);
+}
+
+function speakWithBrowser(text) {
+  const synth = window.speechSynthesis;
+  if (!synth) return;
+  synth.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'es-ES';
+  if (ttsVoice) utterance.voice = ttsVoice;
+  utterance.rate = 1.02;
+  synth.speak(utterance);
 }
 
 form.addEventListener('submit', (event) => {
@@ -531,16 +627,214 @@ imageInput.addEventListener('change', () => {
   const reader = new FileReader();
   reader.onload = () => {
     pendingImage = String(reader.result);
+    pendingImageSource = 'file';
+    captureDimensions = null;
     document.querySelector('#attachName').textContent = file.name;
     attachChip.classList.remove('hidden');
   };
   reader.readAsDataURL(file);
 });
+
+// Pide una captura nativa al comando de Rust y la deja lista como `pendingImage`.
+// Devuelve true si funcionó.
+async function runCapture() {
+  try {
+    const shot = await invoke('capture_screen');
+    pendingImage = shot.imageBase64;
+    pendingImageSource = 'capture';
+    captureDimensions = { width: shot.width, height: shot.height };
+    document.querySelector('#attachName').textContent = 'Captura de pantalla';
+    attachChip.classList.remove('hidden');
+    return true;
+  } catch (error) {
+    console.error('No se pudo capturar la pantalla:', error);
+    // El comando de Rust devuelve un string con el motivo (p. ej. permiso de
+    // grabación). Lo mostramos tal cual en vez de un mensaje genérico.
+    const detail = typeof error === 'string' ? error : error?.message || String(error);
+    document.querySelector('#attachName').textContent = detail;
+    attachChip.classList.remove('hidden');
+    return false;
+  }
+}
+
+const captureButton = document.querySelector('#captureButton');
+captureButton.addEventListener('click', async () => {
+  if (captureButton.disabled) return;
+  captureButton.disabled = true;
+  try {
+    if (await runCapture()) input.focus();
+  } finally {
+    captureButton.disabled = false;
+  }
+});
+
 document.querySelector('#clearAttach').addEventListener('click', () => {
   pendingImage = null;
+  pendingImageSource = null;
+  captureDimensions = null;
   imageInput.value = '';
   attachChip.classList.add('hidden');
 });
+
+// ---------- Voz: push-to-talk → captura + grabación → transcripción → envío ----------
+const micButton = document.querySelector('.composer .mic');
+let mediaRecorder = null;
+let audioChunks = [];
+let recordingStream = null;
+let voiceBusy = false;
+// El push-to-talk es Ctrl+Option (macOS) / Ctrl+Alt (Windows) — solo
+// modificadores, sin tecla. Rust vigila el estado global y emite
+// `ptt:pressed` al mantenerlos y `ptt:released` al soltar cualquiera.
+let pttHeld = false;
+
+function setVoiceState(state) {
+  micButton?.classList.toggle('is-live', state === 'listening');
+  micButton?.classList.toggle('is-busy', state === 'processing');
+  emit('overlay:state', { state }).catch(() => {});
+}
+
+// Muestra un aviso del flujo de voz como burbuja en el chat, para que los
+// fallos (permiso de micro, llave de transcripción, audio vacío…) no pasen
+// desapercibidos.
+function voiceNote(message) {
+  if (!chat) return;
+  chat.insertAdjacentHTML(
+    'beforeend',
+    `<div class="message lumi-message"><div class="bubble"><p>${escapeHtml(message)}</p><small>Ahora</small></div></div>`
+  );
+  chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const result = String(reader.result);
+      resolve(result.slice(result.indexOf(',') + 1));
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function startVoiceCapture() {
+  if (voiceBusy || mediaRecorder) return;
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    voiceNote('El micrófono no está disponible en este contexto (getUserMedia).');
+    return;
+  }
+  stopSpeaking(); // corta cualquier respuesta que se esté leyendo
+  // La captura va ANTES de grabar, para que la respuesta pueda señalar en pantalla.
+  await runCapture();
+  try {
+    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (error) {
+    console.error('No se pudo abrir el micrófono:', error);
+    const name = error?.name || '';
+    voiceNote(
+      name === 'NotAllowedError' || name === 'SecurityError'
+        ? 'Falta el permiso de Micrófono para la app. Actívalo en Ajustes del Sistema → Privacidad y seguridad → Micrófono y relanza.'
+        : `No pude abrir el micrófono: ${name || error}`
+    );
+    setVoiceState('idle');
+    return;
+  }
+  audioChunks = [];
+  try {
+    mediaRecorder = new MediaRecorder(recordingStream);
+  } catch (error) {
+    console.error('MediaRecorder no soportado:', error);
+    voiceNote(`Este entorno no soporta grabación de audio: ${error}`);
+    recordingStream.getTracks().forEach((t) => t.stop());
+    recordingStream = null;
+    setVoiceState('idle');
+    return;
+  }
+  mediaRecorder.addEventListener('dataavailable', (event) => {
+    if (event.data.size > 0) audioChunks.push(event.data);
+  });
+  // timeslice: acumula trozos durante la grabación en vez de depender del
+  // dataavailable final (más fiable en WKWebView).
+  mediaRecorder.start(200);
+  setVoiceState('listening');
+  // Si soltaron las teclas mientras se abría el micro, cortar ya.
+  if (!pttHeld && pttDriven) stopVoiceCapture();
+}
+
+// true solo mientras el disparo actual venga del atajo global (no del botón).
+let pttDriven = false;
+
+async function stopVoiceCapture() {
+  if (!mediaRecorder) return;
+  const recorder = mediaRecorder;
+  mediaRecorder = null;
+  const mimeType = recorder.mimeType || 'audio/webm';
+  const stopped = new Promise((resolve) =>
+    recorder.addEventListener('stop', resolve, { once: true })
+  );
+  try {
+    recorder.requestData();
+  } catch {
+    // algunos navegadores no lo permiten justo antes de stop; no pasa nada
+  }
+  recorder.stop();
+  await stopped;
+  recordingStream?.getTracks().forEach((track) => track.stop());
+  recordingStream = null;
+
+  const blob = new Blob(audioChunks, { type: mimeType });
+  audioChunks = [];
+  if (blob.size < 1200) {
+    setVoiceState('idle');
+    voiceNote('No se escuchó nada. Mantén Ctrl+Option (o Ctrl+Alt) mientras hablas y suelta al terminar.');
+    return;
+  }
+
+  setVoiceState('processing');
+  voiceBusy = true;
+  try {
+    const audioBase64 = await blobToBase64(blob);
+    const { text } = await convex.action(anyApi.transcription.transcribe, {
+      audioBase64,
+      mimeType,
+    });
+    if (text && text.trim()) {
+      await sendMessage(text.trim(), { speakReply: true });
+    } else {
+      voiceNote('No entendí lo que dijiste. Intenta de nuevo, más cerca del micrófono.');
+    }
+  } catch (error) {
+    console.error('La transcripción falló:', error);
+    voiceNote(`La transcripción falló: ${error?.message || error}`);
+  } finally {
+    voiceBusy = false;
+    setVoiceState('idle');
+  }
+}
+
+listen('ptt:pressed', () => {
+  pttHeld = true;
+  pttDriven = true;
+  startVoiceCapture();
+}).catch(() => {});
+listen('ptt:released', () => {
+  pttHeld = false;
+  stopVoiceCapture();
+}).catch(() => {});
+
+if (micButton) {
+  micButton.disabled = false;
+  micButton.removeAttribute('title');
+  micButton.setAttribute('aria-label', 'Hablar (o mantén Ctrl+Option / Ctrl+Alt)');
+  micButton.addEventListener('click', () => {
+    if (mediaRecorder) {
+      stopVoiceCapture();
+    } else {
+      pttDriven = false;
+      startVoiceCapture();
+    }
+  });
+}
 
 document.querySelector('#openDrawer').addEventListener('click', () => {
   const open = sessionDrawer.classList.toggle('hidden');

@@ -487,7 +487,8 @@ button { color: inherit; }
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.attach-chip button { border: 0; background: transparent; cursor: pointer; color: var(--accent-hot); }
+.attach-chip button { flex: 0 0 auto; border: 0; background: transparent; cursor: pointer; color: var(--accent-hot); }
+.attach-chip #attachName { min-width: 0; text-transform: none; letter-spacing: 0; line-height: 1.35; }
 .composer {
   display: flex;
   align-items: center;
@@ -536,6 +537,13 @@ button { color: inherit; }
 }
 .composer .send:hover { color: var(--ink); background: var(--accent); }
 .composer .send:disabled { opacity: 0.45; cursor: progress; }
+.composer .mic:not(:disabled) { color: var(--accent); }
+.composer .mic.is-live { color: var(--on-fill); background: var(--accent-hot); animation: mic-pulse 1s infinite; }
+.composer .mic.is-busy { color: var(--accent-hot); cursor: progress; }
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
 .composer textarea {
   flex: 1;
   min-width: 0;
