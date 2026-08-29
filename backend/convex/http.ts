@@ -133,6 +133,7 @@ http.route({
         conversationId: payload.conversationId,
         content: payload.content,
         imageBase64: payload.imageBase64,
+        app: typeof payload.app === "string" ? payload.app : undefined,
       });
 
       return corsResponse({
@@ -142,6 +143,7 @@ http.route({
         content: result.content,
         detectedTool: result.detectedTool,
         visualHighlight: result.visualHighlight,
+        annotations: result.annotations,
       });
     } catch (err) {
       return handleConvexError(err);
@@ -181,12 +183,14 @@ http.route({
         conversationId: convId,
         content: payload.question,
         imageBase64: payload.imageBase64,
+        app: typeof payload.app === "string" ? payload.app : undefined,
       });
 
       return corsResponse({
         success: true,
         explanation: result.content,
         visualHighlight: result.visualHighlight,
+        annotations: result.annotations,
         detectedTool: result.detectedTool,
         conversationId: convId,
       });

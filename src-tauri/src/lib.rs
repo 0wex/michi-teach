@@ -129,6 +129,34 @@ fn capture_screen(app: AppHandle) -> Result<ScreenCapture, String> {
     // `_guard` restaura el alfa al salir, incluso si la captura falla.
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FrontmostApp {
+    /// Nombre de la aplicación en primer plano (ej. "DaVinci Resolve").
+    app: String,
+    /// Título de la ventana activa (necesita permiso de Grabación de pantalla en macOS).
+    title: String,
+}
+
+/// Devuelve la app que el usuario está mirando ahora mismo. `None` si la ventana
+/// activa es la propia Michi (el usuario pulsó un botón nuestro) — en ese caso
+/// el backend cae a la identificación por visión.
+#[tauri::command]
+fn frontmost_app() -> Option<FrontmostApp> {
+    let win = active_win_pos_rs::get_active_window().ok()?;
+    if win.process_id == std::process::id() as u64 {
+        return None;
+    }
+    let app = win.app_name.trim();
+    if app.is_empty() {
+        return None;
+    }
+    Some(FrontmostApp {
+        app: app.to_string(),
+        title: win.title,
+    })
+}
+
 #[cfg(target_os = "macos")]
 extern "C" {
     fn CGPreflightScreenCaptureAccess() -> bool;
@@ -396,7 +424,12 @@ pub fn run() {
                 .build(),
         )
         .manage(CollapseState(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![quit_app, set_collapsed, capture_screen])
+        .invoke_handler(tauri::generate_handler![
+            quit_app,
+            set_collapsed,
+            capture_screen,
+            frontmost_app
+        ])
         .setup(|app| {
             let handle = app.handle();
 
