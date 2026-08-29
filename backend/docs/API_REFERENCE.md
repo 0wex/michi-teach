@@ -17,6 +17,33 @@ Este documento complementa el contrato formal [`openapi.yaml`](file:///C:/Users/
 
 La autenticación está impulsada por **Convex Auth (`@convex-dev/auth`)**, lo que permite autenticar sin servidores externos pesados:
 
+### `POST /api/auth/signup`
+Crea una nueva cuenta de usuario con email, contraseña y nombre.
+
+**Request Body:**
+```json
+{
+  "name": "Alejandro Editor",
+  "email": "editor@visionguide.dev",
+  "password": "secretPassword123",
+  "preferredTool": "davinci"
+}
+```
+
+**Respuesta Exitosa (`201 Created`):**
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOiJIUzI1NiIsIn...",
+  "user": {
+    "id": "usr_987654",
+    "name": "Alejandro Editor",
+    "email": "editor@visionguide.dev",
+    "isAnonymous": false
+  }
+}
+```
+
 ### `POST /api/auth/signin`
 Permite registrarse o iniciar sesión mediante contraseña, GitHub OAuth o modo anónimo (guest).
 
