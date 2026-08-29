@@ -7,10 +7,14 @@ import { createIcons, ChevronLeft, Minus, X, MoreHorizontal, Sparkles, BookOpen,
 
 document.querySelector('#app').innerHTML = `
   <section class="auth-screen" id="authScreen">
+    <button class="collapse-button auth-collapse" data-collapse aria-label="Colapsar panel"><i data-lucide="chevron-left"></i></button>
     <header class="auth-header">
       <span class="auth-index">01</span>
       <div class="auth-brand" aria-label="Michi Teach">MICHI<br />TEACH</div>
-      <span class="auth-edition">DESKTOP / 2026</span>
+      <div class="auth-system">
+        <span class="auth-edition">DESKTOP / 2026</span>
+        <button class="auth-close" id="authClose" type="button" aria-label="Cerrar aplicación">×</button>
+      </div>
     </header>
 
     <div class="auth-copy">
@@ -52,7 +56,7 @@ document.querySelector('#app').innerHTML = `
   </section>
 
   <section class="shell app-locked" id="assistantShell">
-    <button class="collapse-button" id="collapse" aria-label="Ocultar en el borde derecho"><i data-lucide="chevron-left"></i></button>
+    <button class="collapse-button" data-collapse aria-label="Ocultar en el borde derecho"><i data-lucide="chevron-left"></i></button>
     <header class="titlebar" data-tauri-drag-region>
       <div class="brand" data-tauri-drag-region>
         <div class="brand-mark"><img src="${mascot}" alt="Lumi" /></div>
@@ -208,13 +212,19 @@ async function windowAction(action) {
 }
 document.querySelector('#minimize').addEventListener('click', () => windowAction('minimize'));
 document.querySelector('#close').addEventListener('click', () => invoke('quit_app'));
-document.querySelector('#collapse').addEventListener('click', async () => {
+document.querySelector('#authClose').addEventListener('click', () => invoke('quit_app'));
+
+async function toggleCollapse() {
   collapsed = !collapsed;
   document.body.classList.toggle('collapsed', collapsed);
-  document.querySelector('#collapse').setAttribute('aria-label', collapsed ? 'Mostrar Lumi' : 'Ocultar en el borde derecho');
-  document.querySelector('#collapse svg').style.transform = collapsed ? 'rotate(180deg)' : '';
+  document.querySelectorAll('[data-collapse]').forEach((button) => {
+    button.setAttribute('aria-label', collapsed ? 'Mostrar panel' : 'Colapsar panel');
+    button.querySelector('svg').style.transform = collapsed ? 'rotate(180deg)' : '';
+  });
   await invoke('set_collapsed', { collapsed });
-});
+}
+
+document.querySelectorAll('[data-collapse]').forEach((button) => button.addEventListener('click', toggleCollapse));
 
 if (convex) {
   convex.onUpdate(anyApi.messages.list, {}, () => {});
