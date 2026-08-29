@@ -463,7 +463,8 @@ export const hybridSearch = internalAction({
 
     const limit = args.limit ?? 4;
     const { enrichedQuery, catalogKey, toolKey, inCatalog } = buildSearchContext(args);
-    const skipLocal = args.requireLive === true || !inCatalog;
+    const hasToolHint = !!(args.detectedToolName || args.app);
+    const skipLocal = args.requireLive === true || (hasToolHint && !inCatalog);
 
     let localHits: HybridSearchHit[] = [];
     if (!skipLocal) {
