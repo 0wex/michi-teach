@@ -1,0 +1,468 @@
+openapi: 3.1.0
+info:
+  title: Vision Guide API
+  description: API reactiva y de visión contextual para Vision Guide (Tutor de Software en Tiempo Real). Orquesta la autenticación, chat multi-turno e inferencia espacial con OpenAI GPT-4o Mini Vision.
+  version: 1.0.0
+servers:
+  - url: https://{deploymentName}.convex.site
+    description: Convex Cloud HTTP Router (Producción / Dev)
+    variables:
+      deploymentName:
+        default: accurate-bloodhound-858
+        description: Identificador del deployment de Convex
+  - url: http://localhost:3001
+    description: Desktop Agent Local (Captura de pantalla en segundo plano)
+
+paths:
+  /api/health:
+    get:
+      summary: Verificación de estado del servicio
+      operationId: getHealth
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: integer
+                    example: 1724940000000
+                  version:
+                    type: string
+                    example: 1.0.0
+                  service:
+                    type: string
+                    example: Vision Guide Convex Backend
+
+  /api/auth/signup:
+    post:
+      summary: Registrar nuevo usuario
+      description: Crea una nueva cuenta de usuario en Convex Auth con email, contraseña y nombre.
+      operationId: signUp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignUpRequest'
+      responses:
+        '201':
+          description: Usuario registrado y sesión iniciada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Correo ya registrado o datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/signin:
+    post:
+      summary: Iniciar sesión o autenticar usuario
+      description: Permite iniciar sesión vía credenciales (email y contraseña), OAuth (GitHub / Google) o modo anónimo (guest) usando Convex Auth.
+      operationId: signIn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+      responses:
+        '200':
+          description: Sesión iniciada con éxito
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Credenciales inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/signout:
+    post:
+      summary: Cerrar sesión actual
+      description: Invalida el token o sesión activa en Convex Auth.
+      operationId: signOut
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Sesión finalizada correctamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+
+  /api/auth/user:
+    get:
+      summary: Obtener perfil del usuario autenticado
+      description: Devuelve los datos del usuario actual a partir de su sesión activa.
+      operationId: getCurrentUser
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Perfil del usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/analyze:
+    post:
+      summary: Analizar captura y detectar elemento de UI
+      description: Recibe una imagen en Base64 junto con la consulta del usuario, utiliza OpenAI GPT-4o Mini con visión multimodal y devuelve las coordenadas normalizadas del elemento a interactuar.
+      operationId: analyzeScreenshot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyzeRequest'
+      responses:
+        '200':
+          description: Coordenadas y explicación generadas con éxito
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyzeResponse'
+        '400':
+          description: Parámetros inválidos o imagen corrupta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error en el procesamiento de inferencia
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/conversations:
+    get:
+      summary: Listar conversaciones del usuario
+      operationId: listConversations
+      responses:
+        '200':
+          description: Lista de hilos de chat
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Conversation'
+    post:
+      summary: Crear un nuevo hilo de conversación
+      operationId: createConversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+              properties:
+                title:
+                  type: string
+                  example: Sesión de Asistencia Visual
+      responses:
+        '201':
+          description: Conversación creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+
+  /api/chat:
+    post:
+      summary: Enviar mensaje al chat y recibir respuesta de IA en tiempo real
+      description: Guarda el mensaje del usuario, consulta a OpenAI GPT-4o Mini con la captura (si se adjuntó) y devuelve la respuesta del asistente con las coordenadas resaltadas.
+      operationId: sendChatMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - conversationId
+                - content
+              properties:
+                conversationId:
+                  type: string
+                  description: ID del hilo de conversación en Convex
+                  example: k17bvd5q860pxh1bx2697kxzj98dcyhk
+                content:
+                  type: string
+                  description: Pregunta o instrucción del usuario
+                  example: ¿Dónde está el botón de guardar?
+                imageBase64:
+                  type: string
+                  description: Captura de pantalla opcional (formato data-uri o base64)
+                  example: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+      responses:
+        '200':
+          description: Respuesta del asistente generada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          description: Faltan campos requeridos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    SignUpRequest:
+      type: object
+      required:
+        - email
+        - password
+        - name
+      properties:
+        name:
+          type: string
+          description: Nombre completo del usuario
+          example: Alejandro Editor
+        email:
+          type: string
+          format: email
+          description: Correo electrónico
+          example: editor@visionguide.dev
+        password:
+          type: string
+          format: password
+          description: Contraseña de la cuenta
+          example: secretPassword123
+
+    SignInRequest:
+      type: object
+      required:
+        - provider
+      properties:
+        provider:
+          type: string
+          enum: [password, github, google, anonymous]
+          description: Proveedor de autenticación
+          example: password
+        email:
+          type: string
+          format: email
+          description: Correo electrónico (requerido si provider es password)
+          example: editor@visionguide.dev
+        password:
+          type: string
+          format: password
+          description: Contraseña (requerido si provider es password)
+          example: secretPassword123
+        flow:
+          type: string
+          enum: [signIn, signUp]
+          default: signIn
+          description: Flujo de inicio o registro
+
+    AuthResponse:
+      type: object
+      required:
+        - success
+        - token
+      properties:
+        success:
+          type: boolean
+          example: true
+        token:
+          type: string
+          description: Token de sesión JWT (RS256)
+          example: eyJhbGciOiJSUzI1NiIsIn...
+        refreshToken:
+          type: string
+          example: jh7cermv2r8vxrv...
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          example: usr_987654
+        name:
+          type: string
+          example: Alejandro Editor
+        email:
+          type: string
+          example: editor@visionguide.dev
+        image:
+          type: string
+          example: https://avatars.githubusercontent.com/u/12345
+        isAnonymous:
+          type: boolean
+          example: false
+
+    AnalyzeRequest:
+      type: object
+      required:
+        - imageBase64
+        - question
+      properties:
+        imageBase64:
+          type: string
+          description: Imagen codificada en base64 (PNG o JPEG)
+          example: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+        question:
+          type: string
+          description: Consulta del usuario sobre la interfaz
+          example: ¿Dónde está el botón principal?
+        tool:
+          type: string
+          description: Identificador opcional del software
+          example: universal
+        version:
+          type: string
+          description: Versión opcional del software
+          example: 1.0.0
+        conversationId:
+          type: string
+          description: ID de conversación opcional
+
+    AnalyzeResponse:
+      type: object
+      required:
+        - success
+        - explanation
+      properties:
+        success:
+          type: boolean
+          example: true
+        visualHighlight:
+          type: object
+          properties:
+            x:
+              type: number
+              minimum: 0.0
+              maximum: 1.0
+              description: Coordenada X horizontal normalizada (0.0 a 1.0)
+              example: 0.5
+            y:
+              type: number
+              minimum: 0.0
+              maximum: 1.0
+              description: Coordenada Y vertical normalizada (0.0 a 1.0)
+              example: 0.5
+            label:
+              type: string
+              description: Etiqueta o nombre del elemento identificado
+              example: Botón principal
+        explanation:
+          type: string
+          description: Explicación concisa generada por la IA
+          example: Haz clic en el botón central de la pantalla.
+        executionTimeMs:
+          type: integer
+          example: 620
+
+    Conversation:
+      type: object
+      required:
+        - _id
+        - title
+        - createdAt
+      properties:
+        _id:
+          type: string
+          example: k17bvd5q860pxh1bx2697kxzj98dcyhk
+        title:
+          type: string
+          example: Sesión de Asistencia Visual
+        userId:
+          type: string
+          example: k972w7njnvn57g26gnc49str418dczcp
+        createdAt:
+          type: integer
+          example: 1788021032824
+
+    ChatResponse:
+      type: object
+      required:
+        - success
+        - userMessageId
+        - assistantMessageId
+        - content
+      properties:
+        success:
+          type: boolean
+          example: true
+        userMessageId:
+          type: string
+          example: k575rgkr9rqfes0m3bh5z28my98ddy7p
+        assistantMessageId:
+          type: string
+          example: k57f77c22r3a1shp9ha009vp7h8dcw08
+        content:
+          type: string
+          example: El elemento central es el búho con gafas y libro.
+        visualHighlight:
+          type: object
+          properties:
+            x:
+              type: number
+              example: 0.5
+            y:
+              type: number
+              example: 0.5
+            label:
+              type: string
+              example: Búho educativo
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: Parámetros inválidos
