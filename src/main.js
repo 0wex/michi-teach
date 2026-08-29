@@ -1,5 +1,13 @@
 import './styles.css';
 import cuteCatGif from './assets/cute-cat-white.gif';
+// Colorful paw-print mouse trail ported from Pawboard ImageMouseTrail
+// https://github.com/crafter-station/pawboard — assets bundled locally, no runtime fetch.
+import pawBlack from './assets/pawboard/paw-cursor-black.png';
+import pawGreen from './assets/pawboard/paw-cursor-green.png';
+import pawOrange from './assets/pawboard/paw-cursor-orange.png';
+import pawPurple from './assets/pawboard/paw-cursor-purple.png';
+import pawWhite from './assets/pawboard/paw-cursor-white.png';
+import pawYellow from './assets/pawboard/paw-cursor-yellow.png';
 import { ConvexClient } from 'convex/browser';
 import { anyApi } from 'convex/server';
 import { invoke } from '@tauri-apps/api/core';
@@ -622,3 +630,69 @@ async function restoreSession() {
 }
 
 restoreSession();
+
+// Pawboard ImageMouseTrail: stamp colorful paw prints along the pointer.
+// Default OS cursor stays visible (Pawboard only hides it during its intro).
+function installPawboardTrail() {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const items = [
+    pawBlack, pawGreen, pawOrange, pawPurple, pawWhite, pawYellow,
+    pawBlack, pawGreen, pawOrange, pawPurple,
+  ];
+  const maxNumberOfImages = 5;
+  const distance = 20;
+
+  const layer = document.createElement('div');
+  layer.className = 'pawboard-trail';
+  layer.setAttribute('aria-hidden', 'true');
+
+  const images = items.map((src) => {
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = '';
+    img.draggable = false;
+    img.dataset.status = 'inactive';
+    layer.appendChild(img);
+    return img;
+  });
+
+  document.body.appendChild(layer);
+
+  let last = { x: 0, y: 0 };
+  let index = 0;
+  let z = 1;
+
+  function activate(image, x, y) {
+    image.style.left = `${x}px`;
+    image.style.top = `${y}px`;
+    image.style.setProperty('--rotation', `${Math.random() * 30 - 15}deg`);
+    if (z > 40) z = 1;
+    image.style.zIndex = String(z);
+    z += 1;
+    image.dataset.status = 'active';
+    window.setTimeout(() => {
+      image.dataset.status = 'inactive';
+    }, 600);
+    last = { x, y };
+  }
+
+  function onMove(point) {
+    if (document.body.classList.contains('window-collapsed')) return;
+    if (Math.hypot(point.clientX - last.x, point.clientY - last.y) <= window.innerWidth / distance) {
+      return;
+    }
+    const lead = images[index % images.length];
+    const tailIndex = index >= maxNumberOfImages ? (index - maxNumberOfImages) % images.length : -1;
+    if (lead) activate(lead, point.clientX, point.clientY);
+    if (tailIndex >= 0) images[tailIndex].dataset.status = 'inactive';
+    index += 1;
+  }
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('touchmove', (event) => {
+    if (event.touches[0]) onMove(event.touches[0]);
+  }, { passive: true });
+}
+
+installPawboardTrail();
