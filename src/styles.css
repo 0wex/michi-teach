@@ -8,7 +8,7 @@ button { color: inherit; }
 .auth-index, .auth-copy p, .auth-form label span, .auth-footer { font-size: 9px; letter-spacing: .12em; }
 .auth-brand { font-size: 18px; font-weight: 700; line-height: 1; letter-spacing: -.07em; }
 .auth-system { display: flex; align-items: flex-start; gap: 10px; }
-.auth-close { width: 18px; height: 18px; padding: 0; color: #f4f1e8; background: transparent; border: 0; font-size: 18px; line-height: 14px; cursor: pointer; }
+.auth-close { width: 18px; height: 18px; padding: 0; display: grid; place-items: center; color: #f4f1e8; background: transparent; border: 0; font-size: 18px; line-height: 1; cursor: pointer; }
 .auth-close:hover { color: #b72a2a; }
 .auth-copy { padding: 31px 0 22px; }
 .auth-copy p { margin: 0 0 8px; color: #9a9a9a; }

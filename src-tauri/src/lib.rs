@@ -78,7 +78,11 @@ fn place_on_right(window: &WebviewWindow, collapsed: bool) -> Result<(), String>
     let monitor_position = monitor.position();
     let monitor_size = monitor.size();
     let x = monitor_position.x + monitor_size.width as i32 - width as i32 - margin;
-    let y = monitor_position.y + (monitor_size.height as i32 - height as i32) / 2;
+    let y = if collapsed {
+        monitor_position.y + margin
+    } else {
+        monitor_position.y + (monitor_size.height as i32 - height as i32) / 2
+    };
 
     window
         .set_size(PhysicalSize::new(width, height))
