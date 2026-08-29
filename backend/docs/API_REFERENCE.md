@@ -96,6 +96,19 @@ La ingesta RAG está impulsada por Tavily contra dominios oficiales listados en
 luego fallback web live si la cobertura es baja o si el usuario pide "verificar
 con la web".
 
+
+
+### Chat con captura (SDK / `/api/chat`)
+
+El flujo con imagen **no requiere** que la app este en `APP_CATALOG`:
+
+1. Identifica la herramienta visible en la captura (Vision, paso ligero).
+2. Recupera contexto RAG filtrado si la herramienta esta catalogada.
+3. Si **no** esta catalogada, usa Tavily live en ese momento (sin persistir chunks).
+4. Genera respuesta final con coordenadas.
+
+Los endpoints HTTP mantienen el mismo contrato; `detectedToolName` y `requireLive` son internos de `messages.sendAndReply`.
+
 ### Variables adicionales
 
 - `TAVILY_API_KEY` — cliente de Tavily (`backend/convex/lib/tavily.ts`).

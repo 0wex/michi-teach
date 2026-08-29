@@ -8,6 +8,8 @@ import {
   normalizeImageDataUrl,
   storeScreenshotFromBase64,
 } from "./lib/imageStorage";
+import { resolveToolIdentity } from "./lib/appCatalog";
+import { identifyToolFromImage } from "./lib/toolIdentification";
 
 async function withResolvedScreenshotUrl(
   ctx: { storage: { getUrl: (id: Id<"_storage">) => Promise<string | null> } },
@@ -174,11 +176,24 @@ export const sendAndReply = action({
     if (args.imageBase64 && apiKey) {
       const imageUrl = normalizeImageDataUrl(args.imageBase64);
 
+      let detectedToolName = "Desconocido";
+      try {
+        const identified = await identifyToolFromImage(args.imageBase64, apiKey, model);
+        detectedToolName = identified.toolName;
+      } catch (identifyErr) {
+        console.warn("Identificacion de herramienta no disponible:", identifyErr);
+      }
+
+      const toolIdentity = resolveToolIdentity(args.app ?? detectedToolName);
+      detectedToolName = toolIdentity.displayName;
+
       let hits: HybridHit[] = [];
       try {
         hits = await ctx.runAction(internal.rag.hybridSearch, {
           query: args.content,
           app: args.app,
+          detectedToolName: toolIdentity.displayName,
+          requireLive: !toolIdentity.inCatalog,
           forceWeb,
           limit: 3,
         });
@@ -189,31 +204,33 @@ export const sendAndReply = action({
       const ragContext = formatContextBlock(hits);
 
       const systemPrompt = `
-ROL: Eres Michi, un tutor experto de software de edición de video, diseño y 3D en tiempo real.
+ROL: Eres Michi, un tutor experto de software en tiempo real.
+
+HERRAMIENTA DETECTADA: ${detectedToolName}
 
 TAREA PRINCIPAL:
-1. AUTO-DETECCIÓN: Analiza la interfaz en la captura de pantalla e identifica qué software es (ej: "DaVinci Resolve", "Blender", "CapCut", "Adobe Photoshop", "Adobe Premiere Pro", o "Desconocido").
-2. CONTEXTO TÉCNICO OFICIAL (RAG):
+1. Usa la captura de pantalla para confirmar la interfaz de ${detectedToolName}.
+2. CONTEXTO TECNICO (RAG):
 ${ragContext ? ragContext : "No hay contexto oficial recuperado."}
 
-3. INSTRUCCIÓN AL USUARIO:
+3. INSTRUCCION AL USUARIO:
    - Responde a la duda: "${args.content}".
-   - Utiliza los atajos de teclado y nombres de menús canónicos de la documentación oficial.
-   - Si el CONTEXTO OFICIAL no cubre la pregunta, responde exactamente: "No tengo información oficial verificada para esto" en vez de inventar pasos de UI.
-   - Sé conciso, claro y motivador (máximo 35 palabras), pensado para guiar en vivo.
+   - Utiliza atajos de teclado y nombres de menus canonicos cuando el contexto lo permita.
+   - Si el CONTEXTO no cubre la pregunta, responde exactamente: "No tengo informacion oficial verificada para esto" en vez de inventar pasos de UI.
+   - Se conciso, claro y motivador (maximo 35 palabras), pensado para guiar en vivo.
 
-4. SEÑALIZACIÓN VISUAL:
-   - Si la consulta alude a un botón, menú, herramienta o control visible en pantalla, indica sus coordenadas normalizadas (x e y flotantes entre 0.0 y 1.0) del centro exacto del elemento.
-   - Si no hay un elemento puntual que señalar, usa x: null, y: null.
+4. SENALIZACION VISUAL:
+   - Si la consulta alude a un boton, menu, herramienta o control visible en pantalla, indica sus coordenadas normalizadas (x e y flotantes entre 0.0 y 1.0) del centro exacto del elemento.
+   - Si no hay un elemento puntual que senalar, usa x: null, y: null.
 
 FORMATO OBLIGATORIO DE RESPUESTA:
-Devuelve ÚNICAMENTE un JSON válido con esta estructura:
+Devuelve UNICAMENTE un JSON valido con esta estructura:
 {
-  "detectedTool": "Nombre del software identificado (ej. DaVinci Resolve)",
+  "detectedTool": "${detectedToolName}",
   "explanation": "Texto explicativo conciso...",
   "x": number | null,
   "y": number | null,
-  "label": "Nombre del botón o herramienta señalada"
+  "label": "Nombre del boton o herramienta senalada"
 }
 `;
 
@@ -249,12 +266,14 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
       const data = await openAiResponse.json();
       const contentText = data.choices?.[0]?.message?.content;
       if (!contentText) {
-        throw new Error("OpenAI Vision devolvió una respuesta vacía");
+        throw new Error("OpenAI Vision devolvio una respuesta vacia");
       }
 
       const parsed = JSON.parse(contentText);
       const hasCoords = typeof parsed.x === "number" && typeof parsed.y === "number";
-      const detectedToolName = parsed.detectedTool ? String(parsed.detectedTool) : undefined;
+      const resolvedToolName = parsed.detectedTool
+        ? String(parsed.detectedTool)
+        : detectedToolName;
       const visualHighlight = hasCoords
         ? {
             x: Math.max(0.0, Math.min(1.0, parsed.x)),
@@ -268,7 +287,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
         conversationId: args.conversationId,
         role: "assistant",
         content: explanation,
-        detectedTool: detectedToolName,
+        detectedTool: resolvedToolName,
         visualHighlight,
       });
 
@@ -276,7 +295,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
         userMessageId,
         assistantMessageId,
         content: explanation,
-        detectedTool: detectedToolName,
+        detectedTool: resolvedToolName,
         visualHighlight,
         sources: toSources(hits),
       };
