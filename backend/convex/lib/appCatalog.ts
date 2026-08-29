@@ -265,3 +265,30 @@ export function getAppEntry(input: string): AppCatalogEntry | undefined {
 export function listAppKeys(): string[] {
   return Object.keys(APP_CATALOG);
 }
+
+
+export interface ToolIdentity {
+  displayName: string;
+  key: string;
+  inCatalog: boolean;
+  officialDomains?: string[];
+}
+
+/** Resuelve un nombre de herramienta a identidad canonica (catalogo o slug dinamico). */
+export function resolveToolIdentity(input: string): ToolIdentity {
+  const trimmed = input.trim();
+  const entry = getAppEntry(trimmed);
+  if (entry) {
+    return {
+      displayName: entry.displayName,
+      key: entry.key,
+      inCatalog: true,
+      officialDomains: entry.officialDomains,
+    };
+  }
+  return {
+    displayName: trimmed || "Desconocido",
+    key: normalizeAppKey(trimmed || "unknown"),
+    inCatalog: false,
+  };
+}

@@ -23,7 +23,7 @@ import {
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
-import { APP_CATALOG, getAppEntry, normalizeAppKey } from "./lib/appCatalog";
+import { APP_CATALOG, getAppEntry, normalizeAppKey, resolveToolIdentity } from "./lib/appCatalog";
 import { requireAuthUserId } from "./lib/authorization";
 import {
   CHUNK_TARGET_CHARS,
@@ -417,10 +417,43 @@ export interface HybridSearchHit {
   topic?: string;
 }
 
+function buildSearchContext(args: {
+  query: string;
+  app?: string;
+  detectedToolName?: string;
+}) {
+  if (args.detectedToolName) {
+    const identity = resolveToolIdentity(args.detectedToolName);
+    return {
+      enrichedQuery: `${identity.displayName} ${args.query}`.trim(),
+      catalogKey: identity.inCatalog ? identity.key : undefined,
+      toolKey: identity.key,
+      inCatalog: identity.inCatalog,
+    };
+  }
+  if (args.app) {
+    const identity = resolveToolIdentity(args.app);
+    return {
+      enrichedQuery: args.query,
+      catalogKey: identity.inCatalog ? identity.key : normalizeAppKey(args.app),
+      toolKey: identity.key,
+      inCatalog: identity.inCatalog,
+    };
+  }
+  return {
+    enrichedQuery: args.query,
+    catalogKey: undefined as string | undefined,
+    toolKey: "generic",
+    inCatalog: false,
+  };
+}
+
 export const hybridSearch = internalAction({
   args: {
     query: v.string(),
     app: v.optional(v.string()),
+    detectedToolName: v.optional(v.string()),
+    requireLive: v.optional(v.boolean()),
     forceWeb: v.optional(v.boolean()),
     limit: v.optional(v.number()),
   },
@@ -429,55 +462,67 @@ export const hybridSearch = internalAction({
     if (!apiKey) return [];
 
     const limit = args.limit ?? 4;
-    const appKey = args.app ? normalizeAppKey(args.app) : undefined;
+    const { enrichedQuery, catalogKey, toolKey, inCatalog } = buildSearchContext(args);
+    const skipLocal = args.requireLive === true || !inCatalog;
 
     let localHits: HybridSearchHit[] = [];
-    try {
-      const queryEmbedding = await generateEmbedding(args.query, apiKey);
-      const searchResults = await ctx.vectorSearch("documents", "by_embedding", {
-        vector: queryEmbedding,
-        limit,
-        filter: appKey ? (q) => q.eq("tool", appKey) : undefined,
-      });
-
-      if (searchResults && searchResults.length > 0) {
-        const docs = await ctx.runQuery(internal.rag.fetchDocsByIds, {
-          ids: searchResults.map((r) => r._id as Id<"documents">),
+    if (!skipLocal) {
+      try {
+        const queryEmbedding = await generateEmbedding(enrichedQuery, apiKey);
+        const searchResults = await ctx.vectorSearch("documents", "by_embedding", {
+          vector: queryEmbedding,
+          limit,
+          filter: catalogKey ? (q) => q.eq("tool", catalogKey) : undefined,
         });
-        localHits = docs.map((doc, idx) => ({
-          title: doc.title,
-          content: doc.content,
-          tool: doc.tool,
-          score: searchResults[idx]?._score ?? 0,
-          url: doc.url,
-          source: (doc.source ?? "seed") as DocumentSource,
-          topic: doc.topic,
-        }));
+
+        if (searchResults && searchResults.length > 0) {
+          const docs = await ctx.runQuery(internal.rag.fetchDocsByIds, {
+            ids: searchResults.map((r) => r._id as Id<"documents">),
+          });
+          localHits = docs.map((doc, idx) => ({
+            title: doc.title,
+            content: doc.content,
+            tool: doc.tool,
+            score: searchResults[idx]?._score ?? 0,
+            url: doc.url,
+            source: (doc.source ?? "seed") as DocumentSource,
+            topic: doc.topic,
+          }));
+        }
+      } catch (err) {
+        console.error("hybridSearch: fallo en vector local", err);
       }
-    } catch (err) {
-      console.error("hybridSearch: fallo en vector local", err);
     }
 
     const top1 = localHits[0]?.score ?? 0;
     const strongHits = localHits.filter((h) => h.score >= LOW_MIN_HIT_SCORE).length;
     const lowCoverage = top1 < LOW_TOP1_THRESHOLD || strongHits < LOW_MIN_HIT_COUNT;
 
-    const shouldGoWeb = args.forceWeb === true || lowCoverage;
+    const shouldGoWeb = args.forceWeb === true || skipLocal || lowCoverage;
     if (!shouldGoWeb) return localHits;
 
-    // Fallback web: Tavily sin restricción de dominios.
+    const webQuery = skipLocal
+      ? `${enrichedQuery} official documentation`.trim()
+      : enrichedQuery;
+
     let webHits: HybridSearchHit[] = [];
     try {
       const web = await tavilySearch({
-        query: args.query,
+        query: webQuery,
         maxResults: limit,
         searchDepth: "advanced",
       });
       if (web.results.length > 0) {
-        webHits = await persistLiveWebHits(ctx, apiKey, appKey ?? "generic", web.results);
+        webHits = await persistLiveWebHits(ctx, apiKey, toolKey, web.results, {
+          persist: inCatalog,
+        });
       }
     } catch (err) {
       console.warn("hybridSearch: fallback Tavily falló", err);
+    }
+
+    if (skipLocal) {
+      return webHits.slice(0, Math.max(limit, 4));
     }
 
     const combined = [...localHits, ...webHits];
@@ -490,8 +535,10 @@ async function persistLiveWebHits(
   ctx: ActionCtx,
   apiKey: string,
   toolKey: string,
-  results: TavilySearchResult[]
+  results: TavilySearchResult[],
+  options?: { persist?: boolean }
 ): Promise<HybridSearchHit[]> {
+  const persist = options?.persist !== false;
   const out: HybridSearchHit[] = [];
   for (const r of results) {
     const text = r.content?.trim();
@@ -504,7 +551,7 @@ async function persistLiveWebHits(
       const embedding = await generateEmbedding(`${r.title}. ${firstChunk}`, apiKey);
       const quality = extractQualitySignals(firstChunk, { tavilyScore: r.score });
 
-      if (!existing) {
+      if (persist && !existing) {
         await ctx.runMutation(internal.rag.saveDoc, {
           tool: toolKey,
           title: r.title,
