@@ -9,4 +9,6 @@ src-tauri/gen
 !.env.example
 rustup-init.exe
 vs_BuildTools.exe
+node-lts.msi
+node-portable.zip
 *.log

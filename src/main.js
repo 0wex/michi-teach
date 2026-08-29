@@ -6,7 +6,52 @@ import { invoke } from '@tauri-apps/api/core';
 import { createIcons, ChevronLeft, Minus, X, MoreHorizontal, Sparkles, BookOpen, Languages, Lightbulb, Paperclip, Mic, Send } from 'lucide';
 
 document.querySelector('#app').innerHTML = `
-  <section class="shell">
+  <section class="auth-screen" id="authScreen">
+    <header class="auth-header">
+      <span class="auth-index">01</span>
+      <div class="auth-brand">MICHI<br />TEACH</div>
+      <span class="auth-edition">DESKTOP / 2026</span>
+    </header>
+
+    <div class="auth-copy">
+      <p>ASISTENTE DE APRENDIZAJE</p>
+      <h1 id="authTitle">BIENVENIDO.</h1>
+    </div>
+
+    <form class="auth-form" id="loginForm">
+      <label>
+        <span>CORREO ELECTRÓNICO</span>
+        <input type="email" name="email" autocomplete="email" required placeholder="nombre@correo.com" />
+      </label>
+      <label>
+        <span>CONTRASEÑA</span>
+        <input type="password" name="password" autocomplete="current-password" minlength="6" required placeholder="••••••••" />
+      </label>
+      <button type="submit" class="auth-submit">ENTRAR <span>→</span></button>
+    </form>
+
+    <form class="auth-form auth-hidden" id="registerForm">
+      <label>
+        <span>NOMBRE</span>
+        <input type="text" name="name" autocomplete="name" required placeholder="Tu nombre" />
+      </label>
+      <label>
+        <span>CORREO ELECTRÓNICO</span>
+        <input type="email" name="email" autocomplete="email" required placeholder="nombre@correo.com" />
+      </label>
+      <label>
+        <span>CONTRASEÑA</span>
+        <input type="password" name="password" autocomplete="new-password" minlength="6" required placeholder="Mínimo 6 caracteres" />
+      </label>
+      <button type="submit" class="auth-submit">REGISTRAR <span>→</span></button>
+    </form>
+
+    <p class="auth-status" id="authStatus" aria-live="polite"></p>
+    <button class="auth-switch" id="authSwitch" type="button">¿NUEVO AQUÍ? <b>CREAR CUENTA</b></button>
+    <footer class="auth-footer"><span>PRIVADO</span><span>SIN ALMACENAMIENTO LOCAL</span></footer>
+  </section>
+
+  <section class="shell app-locked" id="assistantShell">
     <button class="collapse-button" id="collapse" aria-label="Ocultar en el borde derecho"><i data-lucide="chevron-left"></i></button>
     <header class="titlebar" data-tauri-drag-region>
       <div class="brand" data-tauri-drag-region>
@@ -71,9 +116,51 @@ createIcons({ icons: { ChevronLeft, Minus, X, MoreHorizontal, Sparkles, BookOpen
 const chat = document.querySelector('#chat');
 const form = document.querySelector('#composer');
 const input = document.querySelector('#messageInput');
+const authScreen = document.querySelector('#authScreen');
+const assistantShell = document.querySelector('#assistantShell');
+const loginForm = document.querySelector('#loginForm');
+const registerForm = document.querySelector('#registerForm');
+const authSwitch = document.querySelector('#authSwitch');
+const authTitle = document.querySelector('#authTitle');
+const authStatus = document.querySelector('#authStatus');
 const convexUrl = import.meta.env.VITE_CONVEX_URL;
 const convex = convexUrl ? new ConvexClient(convexUrl) : null;
 let collapsed = false;
+let registerMode = false;
+
+authSwitch.addEventListener('click', () => {
+  registerMode = !registerMode;
+  loginForm.classList.toggle('auth-hidden', registerMode);
+  registerForm.classList.toggle('auth-hidden', !registerMode);
+  authTitle.textContent = registerMode ? 'CREAR CUENTA.' : 'BIENVENIDO.';
+  authSwitch.innerHTML = registerMode ? '¿YA TIENES CUENTA? <b>INICIAR SESIÓN</b>' : '¿NUEVO AQUÍ? <b>CREAR CUENTA</b>';
+  authStatus.textContent = '';
+});
+
+async function submitAuth(kind, form) {
+  const values = Object.fromEntries(new FormData(form));
+  authStatus.textContent = 'CONECTANDO…';
+  try {
+    if (convex) {
+      await convex.mutation(anyApi.auth[kind], values);
+    }
+    form.reset();
+    authScreen.classList.add('auth-hidden');
+    assistantShell.classList.remove('app-locked');
+  } catch {
+    authStatus.textContent = 'NO SE PUDO CONECTAR CON CONVEX.';
+  }
+}
+
+loginForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  submitAuth('login', loginForm);
+});
+
+registerForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  submitAuth('register', registerForm);
+});
 
 function escapeHtml(value) {
   const div = document.createElement('div');
