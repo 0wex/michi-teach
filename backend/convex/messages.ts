@@ -2,7 +2,6 @@ import { action, mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
-import Anthropic from "@anthropic-ai/sdk";
 
 // 1. Listar mensajes de una conversación en orden cronológico
 export const list = query({
@@ -43,7 +42,7 @@ export const save = mutation({
   },
 });
 
-// 3. Enviar mensaje del usuario y generar la respuesta del asistente (IA)
+// 3. Enviar mensaje del usuario y generar la respuesta del asistente con OpenAI (gpt-4o-mini)
 export const sendAndReply = action({
   args: {
     conversationId: v.id("conversations"),
@@ -67,73 +66,78 @@ export const sendAndReply = action({
       screenshotUrl: args.imageBase64,
     });
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    // Detectar clave de OpenAI (acepta OPENAI_API_KEY o ANTHROPIC_API_KEY por si se guardó ahí)
+    const apiKey = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-    // B. Si hay imagen y clave de Anthropic, invocar Claude 3.7 Vision
+    // B. Si hay imagen y clave de API, invocar modelo multimodal con visión (gpt-4o-mini)
     if (args.imageBase64 && apiKey) {
       try {
-        const anthropic = new Anthropic({ apiKey });
-
-        let rawBase64 = args.imageBase64;
-        let mediaType: "image/png" | "image/jpeg" | "image/webp" = "image/png";
-
-        if (rawBase64.includes(";base64,")) {
-          const parts = rawBase64.split(";base64,");
-          if (parts[0].includes("image/jpeg") || parts[0].includes("image/jpg")) {
-            mediaType = "image/jpeg";
-          } else if (parts[0].includes("image/webp")) {
-            mediaType = "image/webp";
-          }
-          rawBase64 = parts[1];
+        let imageUrl = args.imageBase64;
+        if (!imageUrl.startsWith("data:")) {
+          imageUrl = `data:image/png;base64,${imageUrl}`;
         }
 
-        const prompt = `
-ROL: Eres un tutor de software universal y experto en interfaces gráficas.
+        const systemPrompt = `
+ROL: Eres un tutor de software universal y experto en interfaces gráficas de usuario.
 TAREA:
 1. El usuario pregunta: "${args.content}".
-2. Si la duda se refiere a un botón, menú, herramienta o control específico visible en la imagen:
+2. Analiza la imagen de la interfaz. Si la duda se refiere a un botón, menú, herramienta o control específico:
    - Identifica el elemento exacto.
-   - Provee las coordenadas normalizadas del centro del elemento (X e Y entre 0.0 y 1.0).
-   - Escribe una explicación clara y concisa (máximo 30 palabras).
-3. Devuelve ÚNICAMENTE un objeto JSON:
+   - Provee las coordenadas normalizadas del centro del elemento (x e y flotantes entre 0.0 y 1.0).
+   - Escribe una explicación clara y concisa en español (máximo 30 palabras).
+3. Devuelve ÚNICAMENTE un JSON con este formato exacto:
 {
   "explanation": "Texto explicativo...",
-  "x": number | null,
-  "y": number | null,
-  "label": "Nombre del botón o herramienta"
+  "x": 0.5,
+  "y": 0.5,
+  "label": "Nombre del botón o control"
 }
+Si no se identifica ningún control concreto, devuelve x: null, y: null, label: null.
 `;
 
-        const response = await anthropic.messages.create({
-          model: "claude-3-7-sonnet-20250219",
-          max_tokens: 300,
-          temperature: 0.1,
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    media_type: mediaType,
-                    data: rawBase64,
+        const openAiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey.trim()}`,
+          },
+          body: JSON.stringify({
+            model: model,
+            response_format: { type: "json_object" },
+            temperature: 0.1,
+            max_tokens: 300,
+            messages: [
+              {
+                role: "system",
+                content: systemPrompt,
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: `Pregunta del usuario: "${args.content}"`,
                   },
-                },
-                {
-                  type: "text",
-                  text: prompt,
-                },
-              ],
-            },
-          ],
+                  {
+                    type: "image_url",
+                    image_url: {
+                      url: imageUrl,
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
         });
 
-        const textContent = response.content[0];
-        if (textContent.type === "text") {
-          const jsonMatch = textContent.text.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
+        if (openAiResponse.ok) {
+          const data = await openAiResponse.json();
+          const choice = data.choices?.[0];
+          const contentText = choice?.message?.content;
+
+          if (contentText) {
+            const parsed = JSON.parse(contentText);
             const hasCoords = typeof parsed.x === "number" && typeof parsed.y === "number";
 
             const visualHighlight = hasCoords
@@ -161,15 +165,18 @@ TAREA:
               visualHighlight,
             };
           }
+        } else {
+          const errData = await openAiResponse.text();
+          console.error("OpenAI API error response:", openAiResponse.status, errData);
         }
       } catch (err) {
-        console.error("Error al procesar con Claude Vision:", err);
+        console.error("Error al procesar con OpenAI Vision:", err);
       }
     }
 
-    // C. Respuesta simulada / texto conversacional (si no hay API key o no hay captura)
+    // C. Respuesta de fallback / texto conversacional (si no hay clave o no hay imagen)
     const defaultResponse = args.imageBase64
-      ? "He recibido tu captura de pantalla. En este momento el servicio de inferencia está funcionando en modo demostración. Puedes configurar ANTHROPIC_API_KEY para detección en tiempo real."
+      ? "He recibido tu captura de pantalla. En este momento el servicio de inferencia está funcionando en modo demostración. Puedes configurar OPENAI_API_KEY para detección en tiempo real."
       : `He recibido tu consulta: "${args.content}". Puedes hacer preguntas sobre cualquier software o adjuntar una captura de tu pantalla para que te señale el botón exacto.`;
 
     const assistantMessageId: Id<"messages"> = await ctx.runMutation(api.messages.save, {
