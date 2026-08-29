@@ -94,8 +94,7 @@ button { color: inherit; }
 .auth-footer,
 .micro,
 .status-row,
-.drawer-index,
-.composer-area > p {
+.drawer-index {
   font-size: 9px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -179,8 +178,7 @@ button { color: inherit; }
   border-top: 1px solid var(--rule);
 }
 .auth-form label span { color: var(--muted); }
-.auth-form input,
-.composer textarea {
+.auth-form input {
   width: 100%;
   padding: 4px 0 8px;
   color: var(--ink);
@@ -191,13 +189,10 @@ button { color: inherit; }
   outline: none;
   font-size: 14px;
 }
-.auth-form input:focus,
-.composer:focus-within textarea { border-color: var(--ink); }
-.auth-form input::placeholder,
-.composer textarea::placeholder { color: color-mix(in srgb, var(--muted) 70%, var(--paper)); }
+.auth-form input:focus { border-color: var(--ink); }
+.auth-form input::placeholder { color: color-mix(in srgb, var(--muted) 70%, var(--paper)); }
 
 .auth-submit,
-.send,
 .drawer-new {
   display: flex;
   justify-content: space-between;
@@ -213,10 +208,8 @@ button { color: inherit; }
   cursor: pointer;
 }
 .auth-submit:hover,
-.send:hover,
 .drawer-new:hover { color: var(--ink); background: var(--accent); }
-.auth-submit:disabled,
-.send:disabled { opacity: 0.45; cursor: progress; }
+.auth-submit:disabled { opacity: 0.45; cursor: progress; }
 .auth-submit span { font-size: 17px; line-height: 10px; }
 
 .auth-switch {
@@ -367,7 +360,7 @@ button { color: inherit; }
 .quick-actions b { font-size: 12px; font-weight: 700; }
 .quick-actions small { margin-top: 2px; color: var(--muted); font-size: 10px; }
 
-.composer-area { padding: 10px 16px 8px; border-top: 1px solid var(--rule); background: var(--paper); }
+.composer-area { padding: 10px 16px 12px; border-top: 1px solid var(--rule); background: var(--paper); }
 .attach-chip {
   display: flex;
   align-items: center;
@@ -381,38 +374,78 @@ button { color: inherit; }
   text-transform: uppercase;
 }
 .attach-chip button { border: 0; background: transparent; cursor: pointer; color: var(--accent-hot); }
-.composer { display: flex; align-items: flex-end; gap: 4px; min-height: 44px; }
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  border-bottom: 1px solid var(--rule);
+}
+.composer:focus-within { border-bottom-color: var(--ink); }
 .composer button {
   flex: 0 0 34px;
   width: 34px;
   height: 34px;
+  margin: 0;
+  padding: 0;
   border: 0;
+  border-radius: 0;
   background: transparent;
   display: grid;
   place-items: center;
   cursor: pointer;
   color: var(--muted);
+  letter-spacing: 0;
 }
 .composer button:hover { color: var(--ink); }
-.composer svg { width: 16px; }
+.composer svg { width: 16px; height: 16px; }
 .composer .send {
   flex: 0 0 34px;
-  margin: 0;
-  padding: 0;
-  justify-content: center;
-  color: var(--on-fill);
+  width: 34px;
+  height: 34px;
+  color: #f4f1e8;
+  background: var(--accent);
+}
+.composer .send:hover { color: #f4f1e8; background: var(--accent-hot); }
+.composer .send:disabled { opacity: 0.45; cursor: progress; }
+.composer .send svg { stroke: #f4f1e8; }
+.composer-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  cursor: text;
+}
+.composer-cat {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 24px;
+  display: block;
+  object-fit: contain;
+  image-rendering: pixelated;
+  pointer-events: none;
 }
 .composer textarea {
   flex: 1;
-  align-self: center;
-  resize: none;
+  min-width: 0;
+  width: auto;
+  height: 34px;
+  min-height: 34px;
   max-height: 96px;
-  border-bottom-color: var(--rule);
-  padding: 8px 4px;
+  margin: 0;
+  padding: 8px 0;
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  color: var(--ink);
+  background: transparent;
   font-size: 13px;
-  line-height: 1.35;
+  line-height: 18px;
 }
-.composer-area > p { text-align: left; color: var(--muted); margin: 8px 0 0; }
+.composer textarea::placeholder { color: color-mix(in srgb, var(--muted) 70%, var(--paper)); }
 
 .typing { display: flex; gap: 4px; padding: 12px; }
 .typing i { width: 5px; height: 5px; background: var(--muted); animation: bounce 1s infinite; }
@@ -495,5 +528,4 @@ button { color: inherit; }
 }
 @media (max-height: 520px) {
   .auth-copy { padding-block: 16px; }
-  .composer-area > p { display: none; }
 }
