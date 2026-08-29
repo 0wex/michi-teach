@@ -44,11 +44,73 @@ export const save = internalMutation({
   },
 });
 
+/**
+ * Detecta expresiones del usuario que fuerzan el fallback web live.
+ * Ejemplos: "verifica con la web", "búscalo online", "actualiza", "chequea internet".
+ */
+function shouldForceWeb(text: string): boolean {
+  const lower = text.toLowerCase();
+  const patterns = [
+    /verifica\s+(con\s+la\s+)?web/,
+    /verific[aá](lo)?\s+online/,
+    /b[uú]scalo\s+online/,
+    /b[uú]scalo\s+en\s+internet/,
+    /b[uú]scalo\s+en\s+la\s+web/,
+    /consulta\s+(la\s+)?web/,
+    /actual(iza|ízalo|izame)/,
+    /revisa\s+(la\s+)?web/,
+    /chequea\s+(la\s+)?web/,
+    /chequea\s+internet/,
+    /fuentes?\s+en\s+vivo/,
+  ];
+  return patterns.some((p) => p.test(lower));
+}
+
+type HybridHit = {
+  title: string;
+  content: string;
+  tool: string;
+  score: number;
+  url?: string;
+  source: "official-docs" | "official-forum" | "tavily-live" | "seed";
+  topic?: string;
+};
+
+interface AssistantSource {
+  title: string;
+  url?: string;
+  source: HybridHit["source"];
+}
+
+function toSources(hits: HybridHit[]): AssistantSource[] {
+  const seen = new Set<string>();
+  const out: AssistantSource[] = [];
+  for (const h of hits) {
+    const key = h.url ?? h.title;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ title: h.title, url: h.url, source: h.source });
+  }
+  return out;
+}
+
+function formatContextBlock(hits: HybridHit[]): string {
+  if (hits.length === 0) return "";
+  return hits
+    .map((h) => {
+      const label = h.source === "tavily-live" ? "WEB LIVE" : "CONTEXTO OFICIAL";
+      const urlLine = h.url ? ` (${h.url})` : "";
+      return `[${label}: ${h.title}${urlLine}]\n${h.content}`;
+    })
+    .join("\n\n");
+}
+
 export const sendAndReply = action({
   args: {
     conversationId: v.id("conversations"),
     content: v.string(),
     imageBase64: v.optional(v.string()),
+    app: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -59,6 +121,7 @@ export const sendAndReply = action({
     content: string;
     detectedTool?: string;
     visualHighlight?: { x: number; y: number; label?: string };
+    sources: AssistantSource[];
   }> => {
     await ctx.runQuery(internal.conversations.assertAccess, {
       conversationId: args.conversationId,
@@ -73,6 +136,7 @@ export const sendAndReply = action({
 
     const apiKey = process.env.OPENAI_API_KEY;
     const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+    const forceWeb = shouldForceWeb(args.content);
 
     if (args.imageBase64 && apiKey) {
       let imageUrl = args.imageBase64;
@@ -80,20 +144,19 @@ export const sendAndReply = action({
         imageUrl = `data:image/png;base64,${imageUrl}`;
       }
 
-      let ragContext = "";
+      let hits: HybridHit[] = [];
       try {
-        const relevantDocs = await ctx.runAction(internal.rag.searchDocs, {
+        hits = await ctx.runAction(internal.rag.hybridSearch, {
           query: args.content,
-          limit: 2,
+          app: args.app,
+          forceWeb,
+          limit: 3,
         });
-        if (relevantDocs.length > 0) {
-          ragContext = relevantDocs
-            .map((d) => `[DOCUMENTACIÓN OFICIAL: ${d.title} (${d.tool})]: ${d.content}`)
-            .join("\n\n");
-        }
       } catch (ragErr) {
         console.warn("RAG no disponible:", ragErr);
       }
+
+      const ragContext = formatContextBlock(hits);
 
       const systemPrompt = `
 ROL: Eres Michi, un tutor experto de software de edición de video, diseño y 3D en tiempo real.
@@ -101,11 +164,12 @@ ROL: Eres Michi, un tutor experto de software de edición de video, diseño y 3D
 TAREA PRINCIPAL:
 1. AUTO-DETECCIÓN: Analiza la interfaz en la captura de pantalla e identifica qué software es (ej: "DaVinci Resolve", "Blender", "CapCut", "Adobe Photoshop", "Adobe Premiere Pro", o "Desconocido").
 2. CONTEXTO TÉCNICO OFICIAL (RAG):
-${ragContext ? ragContext : "Utiliza las mejores prácticas estándar para la herramienta identificada."}
+${ragContext ? ragContext : "No hay contexto oficial recuperado."}
 
 3. INSTRUCCIÓN AL USUARIO:
    - Responde a la duda: "${args.content}".
    - Utiliza los atajos de teclado y nombres de menús canónicos de la documentación oficial.
+   - Si el CONTEXTO OFICIAL no cubre la pregunta, responde exactamente: "No tengo información oficial verificada para esto" en vez de inventar pasos de UI.
    - Sé conciso, claro y motivador (máximo 35 palabras), pensado para guiar en vivo.
 
 4. SEÑALIZACIÓN VISUAL:
@@ -184,6 +248,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
         content: explanation,
         detectedTool: detectedToolName,
         visualHighlight,
+        sources: toSources(hits),
       };
     }
 
@@ -196,24 +261,26 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
         .slice(-12)
         .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-      let textRagSnippet = "";
+      let hits: HybridHit[] = [];
       try {
-        const docs = await ctx.runAction(internal.rag.searchDocs, {
+        hits = await ctx.runAction(internal.rag.hybridSearch, {
           query: args.content,
-          limit: 2,
+          app: args.app,
+          forceWeb,
+          limit: 3,
         });
-        if (docs.length > 0) {
-          textRagSnippet = docs.map((d) => `[${d.title}]: ${d.content}`).join("\n");
-        }
       } catch {
         // RAG opcional
       }
+      const textRagSnippet = formatContextBlock(hits);
 
       const systemPrompt =
         "Eres Michi, un tutor personal cálido, claro y motivador. Explicas cualquier " +
         "tema paso a paso, con ejemplos concretos y lenguaje sencillo. Respondes siempre " +
         "en español. Si la pregunta es ambigua, pide una aclaración breve. Mantén las " +
-        "respuestas enfocadas (unas 180 palabras como máximo, salvo que pidan más detalle).\n\n" +
+        "respuestas enfocadas (unas 180 palabras como máximo, salvo que pidan más detalle). " +
+        "Si el CONTEXTO OFICIAL no cubre la pregunta, responde exactamente: " +
+        '"No tengo información oficial verificada para esto" en vez de inventar pasos de UI.\n\n' +
         (textRagSnippet ? `INFORMACIÓN DE REFERENCIA:\n${textRagSnippet}` : "");
 
       const chatResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -246,7 +313,12 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
         role: "assistant",
         content: reply,
       });
-      return { userMessageId, assistantMessageId, content: reply };
+      return {
+        userMessageId,
+        assistantMessageId,
+        content: reply,
+        sources: toSources(hits),
+      };
     }
 
     const defaultResponse = args.imageBase64
@@ -263,6 +335,7 @@ Devuelve ÚNICAMENTE un JSON válido con esta estructura:
       userMessageId,
       assistantMessageId,
       content: defaultResponse,
+      sources: [],
     };
   },
 });

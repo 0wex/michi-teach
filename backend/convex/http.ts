@@ -1,6 +1,6 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { auth } from "./auth";
 
 const http = httpRouter();
@@ -190,6 +190,177 @@ http.route({
         detectedTool: result.detectedTool,
         conversationId: convId,
       });
+    } catch (err) {
+      return handleConvexError(err);
+    }
+  }),
+});
+
+// -----------------------------------------------------------------------------
+// RAG endpoints
+// -----------------------------------------------------------------------------
+
+http.route({
+  path: "/api/rag/ingest",
+  method: "OPTIONS",
+  handler: handleOptions,
+});
+
+http.route({
+  path: "/api/rag/ingest",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const authError = await requireHttpAuth(ctx);
+    if (authError) return authError;
+    try {
+      const payload = await request.json().catch(() => ({}));
+      if (!payload || typeof payload.app !== "string") {
+        return corsResponse(
+          { success: false, error: "Se requiere el campo 'app' (string)." },
+          400
+        );
+      }
+      const topics = Array.isArray(payload.topics)
+        ? payload.topics.filter((t: unknown): t is string => typeof t === "string")
+        : undefined;
+      const result = await ctx.runAction(internal.rag.ingestApp, {
+        app: payload.app,
+        topics,
+        triggeredBy: "manual",
+      });
+      return corsResponse({ success: true, result });
+    } catch (err) {
+      return handleConvexError(err);
+    }
+  }),
+});
+
+http.route({
+  path: "/api/rag/search",
+  method: "OPTIONS",
+  handler: handleOptions,
+});
+
+http.route({
+  path: "/api/rag/search",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const authError = await requireHttpAuth(ctx);
+    if (authError) return authError;
+    try {
+      const payload = await request.json().catch(() => ({}));
+      if (!payload || typeof payload.query !== "string") {
+        return corsResponse(
+          { success: false, error: "Se requiere el campo 'query' (string)." },
+          400
+        );
+      }
+      const hits = await ctx.runAction(internal.rag.hybridSearch, {
+        query: payload.query,
+        app: typeof payload.app === "string" ? payload.app : undefined,
+        forceWeb: payload.forceWeb === true,
+        limit: typeof payload.limit === "number" ? payload.limit : undefined,
+      });
+      return corsResponse({ success: true, hits });
+    } catch (err) {
+      return handleConvexError(err);
+    }
+  }),
+});
+
+// -----------------------------------------------------------------------------
+// Progress endpoints
+// -----------------------------------------------------------------------------
+
+http.route({
+  path: "/api/progress",
+  method: "OPTIONS",
+  handler: handleOptions,
+});
+
+http.route({
+  path: "/api/progress",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const authError = await requireHttpAuth(ctx);
+    if (authError) return authError;
+    try {
+      const url = new URL(request.url);
+      const app = url.searchParams.get("app");
+      if (app) {
+        const record = await ctx.runQuery(api.progress.getProgress, { app });
+        return corsResponse({ success: true, progress: record });
+      }
+      const all = await ctx.runQuery(api.progress.listAppsWithProgress, {});
+      return corsResponse({ success: true, progress: all });
+    } catch (err) {
+      return handleConvexError(err);
+    }
+  }),
+});
+
+http.route({
+  path: "/api/progress",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const authError = await requireHttpAuth(ctx);
+    if (authError) return authError;
+    try {
+      const payload = await request.json().catch(() => ({}));
+      if (!payload || typeof payload.app !== "string") {
+        return corsResponse(
+          { success: false, error: "Se requiere el campo 'app' (string)." },
+          400
+        );
+      }
+      const action: string = typeof payload.action === "string" ? payload.action : "upsert";
+
+      if (action === "completeTopic") {
+        if (typeof payload.topic !== "string") {
+          return corsResponse(
+            { success: false, error: "completeTopic requiere 'topic' (string)." },
+            400
+          );
+        }
+        const record = await ctx.runMutation(api.progress.markTopicComplete, {
+          app: payload.app,
+          topic: payload.topic,
+        });
+        return corsResponse({ success: true, progress: record });
+      }
+
+      if (action === "addErrorNote") {
+        if (typeof payload.note !== "string") {
+          return corsResponse(
+            { success: false, error: "addErrorNote requiere 'note' (string)." },
+            400
+          );
+        }
+        const record = await ctx.runMutation(api.progress.addErrorNote, {
+          app: payload.app,
+          note: payload.note,
+          topic: typeof payload.topic === "string" ? payload.topic : undefined,
+        });
+        return corsResponse({ success: true, progress: record });
+      }
+
+      const detectedLevelInput = payload.detectedLevel;
+      const detectedLevel =
+        detectedLevelInput === "beginner" ||
+        detectedLevelInput === "intermediate" ||
+        detectedLevelInput === "advanced"
+          ? detectedLevelInput
+          : undefined;
+
+      const record = await ctx.runMutation(api.progress.upsertProgress, {
+        app: payload.app,
+        currentTopic:
+          typeof payload.currentTopic === "string" ? payload.currentTopic : undefined,
+        currentStepIndex:
+          typeof payload.currentStepIndex === "number" ? payload.currentStepIndex : undefined,
+        detectedLevel,
+      });
+      return corsResponse({ success: true, progress: record });
     } catch (err) {
       return handleConvexError(err);
     }
