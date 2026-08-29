@@ -67,7 +67,7 @@ paths:
   /api/auth/signin:
     post:
       summary: Iniciar sesión o autenticar usuario
-      description: Permite iniciar sesión vía credenciales (email y contraseña), OAuth (GitHub / Google) o modo anónimo (guest) usando Convex Auth.
+      description: Permite iniciar sesión con contraseña (email + password) o modo anónimo usando Convex Auth.
       operationId: signIn
       requestBody:
         required: true
@@ -132,8 +132,10 @@ paths:
   /api/analyze:
     post:
       summary: Analizar captura y detectar elemento de UI
-      description: Recibe una imagen en Base64 junto con la consulta del usuario, utiliza OpenAI GPT-4o Mini con visión multimodal y devuelve las coordenadas normalizadas del elemento a interactuar.
+      description: Recibe una imagen en Base64 junto con la consulta del usuario, utiliza OpenAI GPT-4o Mini con visión multimodal y devuelve las coordenadas normalizadas del elemento a interactuar. Requiere JWT válido.
       operationId: analyzeScreenshot
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -153,8 +155,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Sin acceso a la conversación indicada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Error en el procesamiento de inferencia
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Error del proveedor de IA (OpenAI)
           content:
             application/json:
               schema:
@@ -162,20 +182,30 @@ paths:
 
   /api/conversations:
     get:
-      summary: Listar conversaciones del usuario
+      summary: Listar conversaciones del usuario autenticado
       operationId: listConversations
+      security:
+        - BearerAuth: []
       responses:
         '200':
-          description: Lista de hilos de chat
+          description: Lista de hilos de chat del usuario autenticado
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: '#/components/schemas/Conversation'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     post:
       summary: Crear un nuevo hilo de conversación
       operationId: createConversation
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -195,12 +225,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Conversation'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/chat:
     post:
       summary: Enviar mensaje al chat y recibir respuesta de IA en tiempo real
-      description: Guarda el mensaje del usuario, consulta a OpenAI GPT-4o Mini con la captura (si se adjuntó) y devuelve la respuesta del asistente con las coordenadas resaltadas.
+      description: Guarda el mensaje del usuario, consulta a OpenAI GPT-4o Mini con la captura (si se adjuntó) y devuelve la respuesta del asistente con las coordenadas resaltadas. Requiere JWT válido.
       operationId: sendChatMessage
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -236,8 +274,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Sin acceso a la conversación indicada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Error del proveedor de IA (OpenAI)
           content:
             application/json:
               schema:
@@ -280,7 +336,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [password, github, google, anonymous]
+          enum: [password, anonymous]
           description: Proveedor de autenticación
           example: password
         email:
@@ -416,6 +472,7 @@ components:
           example: Sesión de Asistencia Visual
         userId:
           type: string
+          description: ID del usuario propietario (siempre presente)
           example: k972w7njnvn57g26gnc49str418dczcp
         createdAt:
           type: integer
@@ -441,6 +498,10 @@ components:
         content:
           type: string
           example: El elemento central es el búho con gafas y libro.
+        detectedTool:
+          type: string
+          description: Software detectado en captura (si aplica)
+          example: DaVinci Resolve
         visualHighlight:
           type: object
           properties:
