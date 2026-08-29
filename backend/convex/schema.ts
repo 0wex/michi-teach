@@ -35,12 +35,79 @@ export default defineSchema({
     title: v.string(),
     content: v.string(),
     embedding: v.array(v.float64()),
+    url: v.optional(v.string()),
+    topic: v.optional(v.string()),
+    source: v.optional(
+      v.union(
+        v.literal("official-docs"),
+        v.literal("official-forum"),
+        v.literal("tavily-live"),
+        v.literal("seed")
+      )
+    ),
+    version: v.optional(v.string()),
+    ingestedAt: v.optional(v.number()),
+    chunkIndex: v.optional(v.number()),
+    chunkTotal: v.optional(v.number()),
+    quality: v.optional(
+      v.object({
+        acceptedAnswer: v.optional(v.boolean()),
+        voteScore: v.optional(v.number()),
+        tavilyScore: v.optional(v.number()),
+      })
+    ),
+    hash: v.optional(v.string()),
   })
     .index("by_tool", ["tool"])
     .index("by_tool_title", ["tool", "title"])
+    .index("by_url", ["url"])
+    .index("by_hash", ["hash"])
+    .index("by_tool_topic", ["tool", "topic"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1536,
-      filterFields: ["tool"],
+      filterFields: ["tool", "source"],
     }),
+
+  learningProgress: defineTable({
+    userId: v.id("users"),
+    app: v.string(),
+    currentTopic: v.optional(v.string()),
+    currentStepIndex: v.optional(v.number()),
+    completedTopics: v.array(v.string()),
+    detectedLevel: v.optional(
+      v.union(v.literal("beginner"), v.literal("intermediate"), v.literal("advanced"))
+    ),
+    errorNotes: v.array(
+      v.object({
+        note: v.string(),
+        topic: v.optional(v.string()),
+        createdAt: v.number(),
+      })
+    ),
+    lastInteractionAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_user_app", ["userId", "app"])
+    .index("by_user", ["userId"]),
+
+  ingestionRuns: defineTable({
+    app: v.string(),
+    topic: v.optional(v.string()),
+    triggeredBy: v.union(v.literal("cron"), v.literal("manual"), v.literal("fallback")),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("running"),
+      v.literal("success"),
+      v.literal("partial"),
+      v.literal("failed")
+    ),
+    urlsDiscovered: v.number(),
+    chunksInserted: v.number(),
+    chunksSkipped: v.number(),
+    error: v.optional(v.string()),
+  })
+    .index("by_app", ["app"])
+    .index("by_startedAt", ["startedAt"]),
 });

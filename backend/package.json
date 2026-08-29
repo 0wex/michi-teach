@@ -5,6 +5,9 @@
   "description": "Vision Guide Convex Backend",
   "scripts": {
     "dev": "convex dev",
+    "deploy": "convex dev --once",
+    "ingest:windows": "convex run rag:runIngestApp '{\"app\":\"windows\"}'",
+    "ingest:davinci": "convex run rag:runIngestApp '{\"app\":\"davinci\"}'",
     "build": "tsc --noEmit"
   },
   "dependencies": {
