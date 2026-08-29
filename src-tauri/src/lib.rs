@@ -27,7 +27,9 @@ fn set_collapsed(
     let mut expanded = state.0.lock().map_err(|_| "No se pudo acceder al estado de la ventana")?;
 
     if collapsed {
-        let size = window.outer_size().map_err(|error| error.to_string())?;
+        // `set_size` cambia el área interior. Guardar `outer_size` aquí hacía que
+        // la sombra/borde se sumara otra vez al expandir en cada ciclo.
+        let size = window.inner_size().map_err(|error| error.to_string())?;
         *expanded = Some(ExpandedWindow { size });
 
         let scale = window.scale_factor().map_err(|error| error.to_string())?;
