@@ -55,13 +55,21 @@ http.route({
   handler: handleOptions,
 });
 
+function sessionTokenFromRequest(request: Request, payload?: { sessionToken?: string }) {
+  const header = request.headers.get("Authorization") || "";
+  const bearer = header.match(/^Bearer\s+(.+)$/i);
+  return bearer?.[1] || payload?.sessionToken || "";
+}
+
 // GET /api/conversations: Listar hilos de conversación
 http.route({
   path: "/api/conversations",
   method: "GET",
-  handler: httpAction(async (ctx) => {
+  handler: httpAction(async (ctx, request) => {
     try {
-      const conversations = await ctx.runQuery(api.conversations.list, {});
+      const conversations = await ctx.runQuery(api.conversations.list, {
+        sessionToken: sessionTokenFromRequest(request),
+      });
       return corsResponse(conversations);
     } catch (err: any) {
       return corsResponse({ success: false, error: err?.message ?? "Error al listar conversaciones" }, 500);
@@ -79,6 +87,7 @@ http.route({
       const title = payload.title ?? "Nueva Conversación";
       const conversationId = await ctx.runMutation(api.conversations.create, {
         title,
+        sessionToken: sessionTokenFromRequest(request, payload),
       });
 
       return corsResponse(
@@ -163,6 +172,7 @@ http.route({
       if (!convId) {
         convId = await ctx.runMutation(api.conversations.create, {
           title: "Análisis Visual Rápido",
+          sessionToken: sessionTokenFromRequest(request, payload),
         });
       }
 

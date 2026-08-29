@@ -1,9 +1,11 @@
-import { mutation } from "./_generated/server";
+import { mutation, query, MutationCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
+import { Doc, Id } from "./_generated/dataModel";
+import { findAccountBySessionToken } from "./lib/accountSession";
 
-// Autenticación propia de la app de escritorio.
-// Convex Auth (@convex-dev/auth) queda para los endpoints REST /api/auth/*;
-// aquí exponemos mutations simples que el cliente vanilla puede llamar por WebSocket.
+// Autenticación propia de la app de escritorio sobre la tabla `accounts`.
+// Convex Auth (@convex-dev/auth) queda en el backend por si hay rutas REST,
+// pero el cliente vanilla ya no lo usa.
 
 const PBKDF2_ITERATIONS = 100_000;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -46,6 +48,25 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+function randomToken(): string {
+  return toHex(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+function publicAccount(account: Doc<"accounts">) {
+  return {
+    _id: account._id,
+    accountId: account._id,
+    name: account.name,
+    email: account.email,
+  };
+}
+
+async function issueSession(ctx: MutationCtx, accountId: Id<"accounts">) {
+  const token = randomToken();
+  await ctx.db.patch(accountId, { sessionToken: token });
+  return token;
+}
+
 export const register = mutation({
   args: { name: v.string(), email: v.string(), password: v.string() },
   handler: async (ctx, { name, email, password }) => {
@@ -55,8 +76,8 @@ export const register = mutation({
     if (!EMAIL_RE.test(normalizedEmail)) {
       throw new ConvexError("Ingresa un correo electrónico válido.");
     }
-    if (password.length < 6) {
-      throw new ConvexError("La contraseña debe tener al menos 6 caracteres.");
+    if (password.length < 8) {
+      throw new ConvexError("La contraseña debe tener al menos 8 caracteres.");
     }
 
     const existing = await ctx.db
@@ -78,7 +99,13 @@ export const register = mutation({
       createdAt: Date.now(),
     });
 
-    return { accountId, email: normalizedEmail, name: cleanName || normalizedEmail };
+    const token = await issueSession(ctx, accountId);
+    return {
+      accountId,
+      email: normalizedEmail,
+      name: cleanName || normalizedEmail,
+      token,
+    };
   },
 });
 
@@ -100,6 +127,25 @@ export const login = mutation({
       throw new ConvexError("La contraseña no es correcta.");
     }
 
-    return { accountId: account._id, email: account.email, name: account.name };
+    const token = await issueSession(ctx, account._id);
+    return { accountId: account._id, email: account.email, name: account.name, token };
+  },
+});
+
+export const viewer = query({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, { sessionToken }) => {
+    const account = await findAccountBySessionToken(ctx, sessionToken);
+    return account ? publicAccount(account) : null;
+  },
+});
+
+export const logout = mutation({
+  args: { sessionToken: v.string() },
+  handler: async (ctx, { sessionToken }) => {
+    const account = await findAccountBySessionToken(ctx, sessionToken);
+    if (account) {
+      await ctx.db.patch(account._id, { sessionToken: undefined });
+    }
   },
 });

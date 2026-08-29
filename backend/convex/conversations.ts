@@ -1,26 +1,21 @@
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { v, ConvexError } from "convex/values";
+import { findAccountBySessionToken } from "./lib/accountSession";
 
-// Listar conversaciones del usuario autenticado (o las más recientes si es invitado)
+// Listar conversaciones de la cuenta con sesión activa
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-
-    if (userId) {
-      return await ctx.db
-        .query("conversations")
-        .withIndex("by_user", (q) => q.eq("userId", userId))
-        .order("desc")
-        .collect();
+  args: { sessionToken: v.string() },
+  handler: async (ctx, { sessionToken }) => {
+    const account = await findAccountBySessionToken(ctx, sessionToken);
+    if (!account) {
+      return [];
     }
 
     return await ctx.db
       .query("conversations")
-      .withIndex("by_createdAt")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
       .order("desc")
-      .take(20);
+      .collect();
   },
 });
 
@@ -32,16 +27,20 @@ export const get = query({
   },
 });
 
-// Crear una nueva conversación
+// Crear una nueva conversación ligada a la cuenta
 export const create = mutation({
   args: {
     title: v.string(),
+    sessionToken: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const account = await findAccountBySessionToken(ctx, args.sessionToken);
+    if (!account) {
+      throw new ConvexError("Necesitas iniciar sesión para crear una conversación.");
+    }
 
     return await ctx.db.insert("conversations", {
-      userId: userId ?? undefined,
+      accountId: account._id,
       title: args.title,
       createdAt: Date.now(),
     });

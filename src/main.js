@@ -33,7 +33,7 @@ const AUTH_ERRORS = {
   TooManyFailedAttempts: 'DEMASIADOS INTENTOS. ESPERA UN MOMENTO.',
 };
 
-function loadTokens() {
+function loadSession() {
   try {
     return JSON.parse(localStorage.getItem(AUTH_STORAGE) || 'null');
   } catch {
@@ -41,12 +41,32 @@ function loadTokens() {
   }
 }
 
-function saveTokens(tokens) {
-  if (!tokens?.token) {
+function saveSession(session) {
+  if (!session?.token) {
     localStorage.removeItem(AUTH_STORAGE);
     return;
   }
-  localStorage.setItem(AUTH_STORAGE, JSON.stringify(tokens));
+  localStorage.setItem(AUTH_STORAGE, JSON.stringify({
+    token: session.token,
+    accountId: session.accountId,
+    email: session.email || '',
+    name: session.name || '',
+    registered: true,
+  }));
+}
+
+function cachedViewer(session = loadSession()) {
+  if (!session?.token) return null;
+  return {
+    _id: session.accountId,
+    accountId: session.accountId,
+    email: session.email || '',
+    name: session.name || 'Cuenta',
+  };
+}
+
+function currentSessionToken() {
+  return loadSession()?.token || '';
 }
 
 function currentTheme() {
@@ -143,16 +163,15 @@ document.querySelector('#app').innerHTML = `
       <p class="auth-status" id="authStatus" aria-live="polite"></p>
       <button class="auth-switch" id="authSwitch" type="button">¿Nuevo aquí? <b>Crear cuenta</b></button>
     </div>
-    <footer class="auth-footer"><span>Sesión cifrada</span><span>Convex Auth</span></footer>
+    <footer class="auth-footer"><span>Sesión cifrada</span><span>Cuenta</span></footer>
   </section>
 
   <section class="shell app-locked" id="assistantShell">
     <header class="titlebar" data-tauri-drag-region>
       <span class="auth-index">02</span>
       <div class="brand" data-tauri-drag-region>
-        <div class="brand-mark"><img src="${mascot}" alt="Lumi" /></div>
         <div>
-          <strong>Lumi</strong>
+          <strong>Michi Teach</strong>
           <span id="userLabel">Tu profe personal</span>
         </div>
       </div>
@@ -193,11 +212,11 @@ document.querySelector('#app').innerHTML = `
       <form class="composer" id="composer">
         <input class="hidden" id="imageInput" type="file" accept="image/*" />
         <button type="button" class="attach" id="attachButton" aria-label="Adjuntar captura"><i data-lucide="paperclip"></i></button>
-        <textarea id="messageInput" rows="1" maxlength="500" placeholder="Pregúntale algo a Lumi..."></textarea>
+        <textarea id="messageInput" rows="1" maxlength="500" placeholder="Pregúntale algo a Michi Teach..."></textarea>
         <button type="button" class="mic" aria-label="Mensaje de voz" disabled title="Próximamente"><i data-lucide="mic"></i></button>
         <button type="submit" class="send" aria-label="Enviar"><i data-lucide="send"></i></button>
       </form>
-      <p>Lumi puede equivocarse. Verifica la información importante.</p>
+      <p>Michi Teach puede equivocarse. Verifica la información importante.</p>
     </footer>
   </section>
 `;
@@ -233,30 +252,6 @@ let unsubMessages = null;
 let unsubConversations = null;
 let unsubViewer = null;
 
-async function fetchAccessToken({ forceRefreshToken }) {
-  const stored = loadTokens();
-  if (!stored?.token) return null;
-  if (!forceRefreshToken) return stored.token;
-  try {
-    const result = await convex.action(anyApi.auth.signIn, { refreshToken: stored.refreshToken });
-    if (result?.tokens?.token) {
-      saveTokens(result.tokens);
-      return result.tokens.token;
-    }
-  } catch {
-    saveTokens(null);
-  }
-  return null;
-}
-
-function installAuth() {
-  convex.setAuth(fetchAccessToken, (isAuthenticated) => {
-    if (!isAuthenticated && viewer) showAuth();
-  });
-}
-
-installAuth();
-
 function emptyChatMarkup() {
   return `
     <div class="hero">
@@ -264,7 +259,7 @@ function emptyChatMarkup() {
         <span class="spark one">01</span><span class="spark two">02</span>
         <img src="${mascot}" alt="Lumi, tu búho profesor" />
       </div>
-      <h1>Hola. Soy Lumi.</h1>
+      <h1>Hola. Soy Michi Teach.</h1>
       <p>Compañero para aprender, practicar<br />y resolver esas dudas difíciles.</p>
     </div>
     <div class="quick-actions" id="quickActions">
@@ -353,11 +348,10 @@ function showApp(user) {
   viewer = user;
   authScreen.classList.add('auth-hidden');
   assistantShell.classList.remove('app-locked');
-  const name = user?.name || user?.email || 'Lumi';
-  document.querySelector('#userLabel').textContent = name;
-  document.querySelector('#drawerName').textContent = name;
+  document.querySelector('#userLabel').textContent = 'Tu profe personal';
+  document.querySelector('#drawerName').textContent = user?.name || 'Cuenta';
   document.querySelector('#drawerEmail').textContent = user?.email || 'Sesión activa';
-  document.querySelector('#userIndex').textContent = (user?.name || user?.email || 'L').slice(0, 2).toUpperCase();
+  document.querySelector('#userIndex').textContent = (user?.name || user?.email || 'M').slice(0, 2).toUpperCase();
   subscribeAppData();
 }
 
@@ -378,20 +372,35 @@ function showAuth(message = '') {
 }
 
 function subscribeAppData() {
+  const sessionToken = currentSessionToken();
+  if (!sessionToken) {
+    saveSession(null);
+    showAuth();
+    return;
+  }
   unsubViewer?.();
   unsubConversations?.();
-  unsubViewer = convex.onUpdate(anyApi.users.viewer, {}, (user) => {
+  unsubViewer = convex.onUpdate(anyApi.accounts.viewer, { sessionToken }, (user) => {
     if (!user) {
-      saveTokens(null);
+      saveSession(null);
       showAuth();
       return;
     }
+    const session = loadSession() || {};
+    saveSession({
+      token: sessionToken,
+      accountId: user.accountId || user._id || session.accountId,
+      email: user.email || session.email,
+      name: user.name || session.name,
+    });
     viewer = user;
-    document.querySelector('#userLabel').textContent = user.name || user.email || 'Lumi';
-    document.querySelector('#drawerName').textContent = user.name || user.email || 'Cuenta';
+    document.querySelector('#userLabel').textContent = 'Tu profe personal';
+    document.querySelector('#drawerName').textContent = user.name || 'Cuenta';
     document.querySelector('#drawerEmail').textContent = user.email || 'Sesión activa';
+  }, () => {
+    // Mantener la sesión local si el query falla (red o función aún no desplegada).
   });
-  unsubConversations = convex.onUpdate(anyApi.conversations.list, {}, (items) => {
+  unsubConversations = convex.onUpdate(anyApi.conversations.list, { sessionToken }, (items) => {
     conversations = items || [];
     renderThreads();
     if (!conversationId && conversations[0]) openConversation(conversations[0]._id);
@@ -412,7 +421,10 @@ function openConversation(id) {
 }
 
 async function startConversation(title) {
-  const id = await convex.mutation(anyApi.conversations.create, { title });
+  const id = await convex.mutation(anyApi.conversations.create, {
+    title,
+    sessionToken: currentSessionToken(),
+  });
   openConversation(id);
   return id;
 }
@@ -433,16 +445,26 @@ async function submitAuth(flow, formEl) {
   authStatus.classList.remove('is-ok');
   submit.disabled = true;
   try {
-    const params = flow === 'signUp'
-      ? { email: values.email, password: values.password, name: values.name, flow: 'signUp' }
-      : { email: values.email, password: values.password, flow: 'signIn' };
-    const result = await convex.action(anyApi.auth.signIn, { provider: 'password', params });
-    if (!result?.tokens?.token) throw new Error('NO SE RECIBIÓ UNA SESIÓN VÁLIDA.');
-    saveTokens(result.tokens);
-    installAuth();
-    const user = await convex.query(anyApi.users.viewer, {});
+    const result = flow === 'signUp'
+      ? await convex.mutation(anyApi.accounts.register, {
+          email: values.email,
+          password: values.password,
+          name: values.name,
+        })
+      : await convex.mutation(anyApi.accounts.login, {
+          email: values.email,
+          password: values.password,
+        });
+    if (!result?.token || !result?.accountId) throw new Error('NO SE RECIBIÓ UNA SESIÓN VÁLIDA.');
+    const user = {
+      _id: result.accountId,
+      accountId: result.accountId,
+      email: result.email || values.email,
+      name: result.name || values.name,
+    };
+    saveSession({ token: result.token, ...user });
     formEl.reset();
-    showApp(user || { email: values.email, name: values.name });
+    showApp(user);
   } catch (error) {
     authStatus.textContent = mapAuthError(error);
   } finally {
@@ -533,11 +555,11 @@ document.querySelector('#newConversation').addEventListener('click', async () =>
   sessionDrawer.classList.add('hidden');
 });
 document.querySelector('#signOut').addEventListener('click', async () => {
+  const sessionToken = currentSessionToken();
   try {
-    await convex.action(anyApi.auth.signOut, {});
+    if (sessionToken) await convex.mutation(anyApi.accounts.logout, { sessionToken });
   } catch { /* La sesión local se limpia de todos modos. */ }
-  saveTokens(null);
-  installAuth();
+  saveSession(null);
   showAuth();
 });
 
@@ -596,13 +618,29 @@ async function checkHealth() {
 async function restoreSession() {
   renderEmptyChat();
   await checkHealth();
-  if (!loadTokens()?.token) return;
+  const session = loadSession();
+  const sessionToken = session?.token;
+  if (!sessionToken) return;
+
+  const localUser = cachedViewer(session);
+  if (localUser) showApp(localUser);
+
   try {
-    const user = await convex.query(anyApi.users.viewer, {});
-    if (user) showApp(user);
-    else showAuth();
+    const user = await convex.query(anyApi.accounts.viewer, { sessionToken });
+    if (user) {
+      saveSession({
+        token: sessionToken,
+        accountId: user.accountId || user._id,
+        email: user.email,
+        name: user.name,
+      });
+      showApp(user);
+      return;
+    }
+    saveSession(null);
+    showAuth();
   } catch {
-    saveTokens(null);
+    // Sesión local intacta: no pedir login de nuevo hasta que el token sea inválido o se cierre sesión.
   }
 }
 

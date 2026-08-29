@@ -12,16 +12,19 @@ export default defineSchema({
     email: v.string(), // siempre normalizado a minúsculas
     passwordHash: v.string(), // PBKDF2-SHA256, hex
     salt: v.string(), // 16 bytes en hex
+    sessionToken: v.optional(v.string()), // token de sesión actual (hex)
     createdAt: v.number(),
-  }).index("by_email", ["email"]),
+  })
+    .index("by_email", ["email"])
+    .index("by_sessionToken", ["sessionToken"]),
 
-  // Hilos de conversación entre el usuario y el asistente
+  // Hilos de conversación entre la cuenta y el asistente
   conversations: defineTable({
-    userId: v.optional(v.id("users")), // ID del usuario autenticado (o null para invitado)
+    accountId: v.optional(v.id("accounts")),
     title: v.string(), // Título descriptivo de la conversación
     createdAt: v.number(),
   })
-    .index("by_user", ["userId"])
+    .index("by_account", ["accountId"])
     .index("by_createdAt", ["createdAt"]),
 
   // Mensajes dentro de un hilo de conversación
