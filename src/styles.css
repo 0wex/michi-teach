@@ -3,26 +3,26 @@
 html, body, #app { margin: 0; width: 100%; height: 100%; overflow: hidden; }
 button, textarea { font: inherit; }
 button { color: inherit; }
-.auth-screen { width: 100%; height: 100%; display: grid; grid-template-rows: auto auto 1fr auto auto; padding: 20px; color: #f1f1e8; background: #000; border: 1px solid #262626; border-radius: 22px; overflow: auto; }
-.auth-header { display: grid; grid-template-columns: 40px 1fr auto; align-items: start; padding-bottom: 16px; border-bottom: 1px solid #f1f1e8; }
+.auth-screen { width: 100%; height: 100%; display: grid; grid-template-rows: auto auto 1fr auto auto; padding: 20px; color: #f4f1e8; background-color: #020202; background-image: linear-gradient(rgba(116,0,0,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(116,0,0,.12) 1px, transparent 1px); background-size: 100% 25%, 25% 100%; border: 1px solid #1b1b1b; border-radius: 22px; overflow: auto; }
+.auth-header { display: grid; grid-template-columns: 40px 1fr auto; align-items: start; padding-bottom: 16px; border-bottom: 1px solid #f4f1e8; }
 .auth-index, .auth-edition, .auth-copy p, .auth-form label span, .auth-footer { font-size: 9px; letter-spacing: .12em; }
-.auth-brand { font-size: 17px; font-weight: 800; line-height: .88; letter-spacing: -.06em; }
-.auth-edition { text-align: right; color: #999; }
+.auth-brand { font-size: 18px; font-weight: 700; line-height: .83; letter-spacing: -.07em; }
+.auth-edition { text-align: right; color: #878787; }
 .auth-copy { padding: 31px 0 22px; }
-.auth-copy p { margin: 0 0 8px; color: #e30613; }
-.auth-copy h1 { max-width: 260px; margin: 0; font-size: 45px; line-height: .86; letter-spacing: -.075em; }
+.auth-copy p { margin: 0 0 8px; color: #9a9a9a; }
+.auth-copy h1 { max-width: 260px; margin: 0; font-size: 45px; font-weight: 500; line-height: .82; letter-spacing: -.075em; }
 .auth-form { display: flex; flex-direction: column; align-self: start; }
-.auth-form label { display: grid; gap: 8px; padding: 12px 0; border-top: 1px solid #383838; }
-.auth-form label span { color: #aaa; }
-.auth-form input { width: 100%; padding: 3px 0 8px; color: #f1f1e8; background: transparent; border: 0; border-bottom: 1px solid #777; border-radius: 0; outline: none; font-size: 14px; }
-.auth-form input:focus { border-color: #e30613; }
+.auth-form label { display: grid; gap: 8px; padding: 12px 0; border-top: 1px solid #292929; }
+.auth-form label span { color: #a4a4a4; }
+.auth-form input { width: 100%; padding: 3px 0 8px; color: #f4f1e8; background: transparent; border: 0; border-bottom: 1px solid #6c6c6c; border-radius: 0; outline: none; font-size: 14px; }
+.auth-form input:focus { border-color: #f4f1e8; }
 .auth-form input::placeholder { color: #505050; }
-.auth-submit { display: flex; justify-content: space-between; margin-top: 13px; padding: 13px 14px; color: #fff; background: #e30613; border: 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; cursor: pointer; }
-.auth-submit:hover { background: #ff1422; }
+.auth-submit { display: flex; justify-content: space-between; margin-top: 13px; padding: 13px 14px; color: #020202; background: #f4f1e8; border: 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; cursor: pointer; }
+.auth-submit:hover { color: #f4f1e8; background: #760000; }
 .auth-submit span { font-size: 17px; line-height: 10px; }
 .auth-switch { padding: 14px 0 10px; color: #888; background: transparent; border: 0; text-align: left; font-size: 9px; letter-spacing: .08em; cursor: pointer; }
-.auth-switch b { color: #f1f1e8; }
-.auth-status { min-height: 12px; margin: 10px 0 0; color: #e30613; font-size: 9px; letter-spacing: .08em; }
+.auth-switch b { color: #f4f1e8; }
+.auth-status { min-height: 12px; margin: 10px 0 0; color: #b72a2a; font-size: 9px; letter-spacing: .08em; }
 .auth-footer { display: flex; justify-content: space-between; padding-top: 11px; color: #777; border-top: 1px solid #333; }
 .auth-hidden, .app-locked { display: none; }
 .shell { position: relative; width: 100%; height: 100%; display: grid; grid-template-rows: 68px 36px 1fr auto; background: #f8f7f2; overflow: hidden; border: 1px solid rgba(33,39,52,.10); border-radius: 22px; box-shadow: 0 24px 70px rgba(39,45,58,.18); }

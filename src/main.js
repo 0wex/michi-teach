@@ -9,7 +9,7 @@ document.querySelector('#app').innerHTML = `
   <section class="auth-screen" id="authScreen">
     <header class="auth-header">
       <span class="auth-index">01</span>
-      <div class="auth-brand">MICHI<br />TEACH</div>
+      <div class="auth-brand" aria-label="Michi Teach">MICHI<br />TEACH</div>
       <span class="auth-edition">DESKTOP / 2026</span>
     </header>
 
