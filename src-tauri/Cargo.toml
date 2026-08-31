@@ -25,6 +25,8 @@ tauri-plugin-global-shortcut = "2"
 # Estado global del teclado para el push-to-talk solo-modificadores
 # (Ctrl+Option / Ctrl+Alt). El plugin de atajos no admite combos sin tecla.
 device_query = "4"
+# Detecta la app en primer plano (nombre + título) para enviarla al backend.
+active-win-pos-rs = "0.11"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

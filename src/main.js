@@ -261,6 +261,10 @@ let pendingImageSource = null;
 // Dimensiones de la última captura nativa, en píxeles. El overlay las usará
 // para proyectar las coordenadas normalizadas 0..1 que devuelve el backend.
 let captureDimensions = null;
+// Nombre de la app que el usuario tenía en primer plano al hacer la consulta.
+// Se envía a `sendAndReply` para que el backend identifique la herramienta sin
+// adivinarla por visión. `null` si no se pudo detectar (o era la propia Michi).
+let detectedApp = null;
 let sending = false;
 let unsubMessages = null;
 let unsubConversations = null;
@@ -505,9 +509,11 @@ async function sendMessage(text, { speakReply = false } = {}) {
       conversationId,
       content: clean,
       imageBase64: pendingImage || undefined,
+      app: detectedApp || undefined,
     });
     pendingImage = null;
     pendingImageSource = null;
+    detectedApp = null;
     attachChip.classList.add('hidden');
     imageInput.value = '';
     showTyping(false);
@@ -639,10 +645,14 @@ imageInput.addEventListener('change', () => {
 // Devuelve true si funcionó.
 async function runCapture() {
   try {
-    const shot = await invoke('capture_screen');
+    const [shot, front] = await Promise.all([
+      invoke('capture_screen'),
+      invoke('frontmost_app').catch(() => null),
+    ]);
     pendingImage = shot.imageBase64;
     pendingImageSource = 'capture';
     captureDimensions = { width: shot.width, height: shot.height };
+    if (front?.app) detectedApp = front.app;
     document.querySelector('#attachName').textContent = 'Captura de pantalla';
     attachChip.classList.remove('hidden');
     return true;
@@ -724,6 +734,8 @@ async function startVoiceCapture() {
     return;
   }
   stopSpeaking(); // corta cualquier respuesta que se esté leyendo
+  // Detectar la app AHORA, antes de que Michi pueda robar el foco.
+  detectedApp = (await invoke('frontmost_app').catch(() => null))?.app ?? detectedApp;
   // La captura va ANTES de grabar, para que la respuesta pueda señalar en pantalla.
   await runCapture();
   try {
