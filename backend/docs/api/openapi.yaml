@@ -261,6 +261,10 @@ paths:
                   type: string
                   description: Captura de pantalla opcional (formato data-uri o base64)
                   example: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
+                app:
+                  type: string
+                  description: Hint opcional del entorno del usuario (título de ventana activa o nombre de la app al capturar)
+                  example: OBS Studio
       responses:
         '200':
           description: Respuesta del asistente generada
@@ -409,6 +413,10 @@ components:
           type: string
           description: Consulta del usuario sobre la interfaz
           example: ¿Dónde está el botón principal?
+        app:
+          type: string
+          description: Hint opcional del entorno del usuario (título de ventana activa o nombre de la app al capturar)
+          example: OBS Studio
         tool:
           type: string
           description: Identificador opcional del software

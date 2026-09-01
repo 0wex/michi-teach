@@ -100,14 +100,18 @@ con la web".
 
 ### Chat con captura (SDK / `/api/chat`)
 
-El flujo con imagen **no requiere** que la app este en `APP_CATALOG`:
+El flujo con imagen detecta el **contexto del usuario** (cualquier software, terminal o interfaz) en una sola llamada Vision:
 
-1. Identifica la herramienta visible en la captura (Vision, paso ligero).
-2. Recupera contexto RAG filtrado si la herramienta esta catalogada.
-3. Si **no** esta catalogada, usa Tavily live en ese momento (sin persistir chunks).
-4. Genera respuesta final con coordenadas.
+1. RAG preliminar con la pregunta del usuario (y hint opcional `app` del cliente o ventana activa de Tauri).
+2. Vision unificada: analiza imagen + pregunta + hint del SO, infiere entorno y responde con coordenadas si aplica.
+3. Si el RAG inicial fue pobre y el contexto detectado tiene confianza media/alta, se re-ejecuta búsqueda con el entorno detectado.
+4. Apps del catálogo usan índice vectorial local; cualquier otra app usa Tavily live.
 
-Los endpoints HTTP mantienen el mismo contrato; `detectedToolName` y `requireLive` son internos de `messages.sendAndReply`.
+**Campo opcional `app`** (body en `/api/chat` y `/api/analyze`, o argumento SDK): título o nombre de la ventana activa detectada por Tauri (ej. `"OBS Studio"`, `"Windows Terminal"`).
+
+El campo de respuesta `detectedTool` representa el **entorno detectado del usuario**, no solo apps del catálogo RAG.
+
+Los endpoints HTTP mantienen el mismo contrato; `requireLive` y refinamiento RAG son internos de `messages.sendAndReply`.
 
 ### Variables adicionales
 
