@@ -8,7 +8,7 @@ servers:
     description: Convex Cloud HTTP Router (Producción / Dev)
     variables:
       deploymentName:
-        default: accurate-bloodhound-858
+        default: '<your-deployment>'
         description: Identificador del deployment de Convex
   - url: http://localhost:3001
     description: Desktop Agent Local (Captura de pantalla en segundo plano)

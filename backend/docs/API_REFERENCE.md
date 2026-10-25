@@ -8,8 +8,8 @@ Guía de consumo que complementa el contrato formal [`openapi.yaml`](./api/opena
 
 | Servicio | URL Base | Propósito |
 | :--- | :--- | :--- |
-| **Convex Cloud REST API** | `https://accurate-bloodhound-858.convex.site` | Endpoints HTTP REST |
-| **Convex WebSocket SDK** | `https://accurate-bloodhound-858.convex.cloud` | Cliente reactivo (Tauri / Vite) |
+| **Convex Cloud REST API** | `https://<your-deployment>.convex.site` | Endpoints HTTP REST |
+| **Convex WebSocket SDK** | `https://<your-deployment>.convex.cloud` | Cliente reactivo (Tauri / Vite) |
 
 ---
 
@@ -69,7 +69,7 @@ npm run seed
 # equivalente: npx convex run rag:seedDocs "{}"
 ```
 
-Estado actual en dev (`accurate-bloodhound-858`): **13 documentos** (davinci, blender, capcut, photoshop, premiere).
+Estado actual en dev: **13 documentos** (davinci, blender, capcut, photoshop, premiere).
 
 Variables requeridas en el dashboard Convex:
 
