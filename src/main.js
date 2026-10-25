@@ -30,7 +30,7 @@ import {
 
 const AUTH_STORAGE = 'lumi.auth';
 const THEME_STORAGE = 'lumi.theme';
-const CONVEX_URL = import.meta.env.VITE_CONVEX_URL || 'https://accurate-bloodhound-858.convex.cloud';
+const CONVEX_URL = import.meta.env.VITE_CONVEX_URL || 'https://<your-deployment>.convex.cloud';
 const CONVEX_SITE = CONVEX_URL.replace('.convex.cloud', '.convex.site');
 const AUTH_ERRORS = {
   InvalidSecret: 'CORREO O CONTRASEÑA INCORRECTOS.',

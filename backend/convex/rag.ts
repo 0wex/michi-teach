@@ -434,14 +434,14 @@ function buildSearchContext(args: {
   if (args.app) {
     const identity = resolveToolIdentity(args.app);
     return {
-      enrichedQuery: args.query,
+      enrichedQuery: `${identity.displayName} ${args.query}`.trim(),
       catalogKey: identity.inCatalog ? identity.key : normalizeAppKey(args.app),
       toolKey: identity.key,
       inCatalog: identity.inCatalog,
     };
   }
   return {
-    enrichedQuery: args.query,
+    enrichedQuery: args.query.trim(),
     catalogKey: undefined as string | undefined,
     toolKey: "generic",
     inCatalog: false,

@@ -1,5 +1,9 @@
 /**
- * Catálogo estático extensible de aplicaciones soportadas por el módulo RAG.
+ * Catálogo estático de aplicaciones con documentación RAG curada vía Tavily.
+ *
+ * Nota: este catálogo optimiza la ingesta y búsqueda vectorial local; NO limita
+ * qué software puede usar el usuario. Apps no catalogadas (OBS, terminal, etc.)
+ * se atienden con detección dinámica de contexto + Tavily live.
  *
  * Cada entrada define:
  *  - key: identificador canónico en minúsculas (usado como `tool` en la tabla `documents`).

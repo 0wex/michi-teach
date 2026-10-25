@@ -5,11 +5,11 @@ import { Id } from "./_generated/dataModel";
 import { requireConversationAccess } from "./lib/authorization";
 import {
   MAX_IMAGE_BASE64_LENGTH,
-  normalizeImageDataUrl,
   storeScreenshotFromBase64,
 } from "./lib/imageStorage";
 import { resolveToolIdentity } from "./lib/appCatalog";
-import { identifyToolFromImage } from "./lib/toolIdentification";
+import { analyzeUserContextFromImage } from "./lib/userContext";
+import { isHybridSearchLowCoverage } from "./lib/ragCoverage";
 
 async function withResolvedScreenshotUrl(
   ctx: { storage: { getUrl: (id: Id<"_storage">) => Promise<string | null> } },
@@ -228,6 +228,13 @@ export const sendAndReply = action({
       conversationId: args.conversationId,
     });
 
+    console.log("sendAndReply", {
+      hasApp: !!args.app,
+      app: args.app?.trim() || null,
+      hasImage: !!args.imageBase64,
+      contentLength: args.content.length,
+    });
+
     if (args.imageBase64 && args.imageBase64.length > MAX_IMAGE_BASE64_LENGTH) {
       throw new Error("La imagen supera el tamaño máximo permitido (16 MB).");
     }
@@ -251,26 +258,15 @@ export const sendAndReply = action({
     const forceWeb = shouldForceWeb(args.content);
 
     if (args.imageBase64 && apiKey) {
-      const imageUrl = normalizeImageDataUrl(args.imageBase64);
-
-      let detectedToolName = "Desconocido";
-      try {
-        const identified = await identifyToolFromImage(args.imageBase64, apiKey, model);
-        detectedToolName = identified.toolName;
-      } catch (identifyErr) {
-        console.warn("Identificacion de herramienta no disponible:", identifyErr);
-      }
-
-      const toolIdentity = resolveToolIdentity(args.app ?? detectedToolName);
-      detectedToolName = toolIdentity.displayName;
+      const appIdentity = args.app ? resolveToolIdentity(args.app) : undefined;
 
       let hits: HybridHit[] = [];
       try {
         hits = await ctx.runAction(internal.rag.hybridSearch, {
           query: args.content,
           app: args.app,
-          detectedToolName: toolIdentity.displayName,
-          requireLive: !toolIdentity.inCatalog,
+          detectedToolName: args.app,
+          requireLive: appIdentity ? !appIdentity.inCatalog : false,
           forceWeb,
           limit: 3,
         });
@@ -278,108 +274,60 @@ export const sendAndReply = action({
         console.warn("RAG no disponible:", ragErr);
       }
 
-      const ragContext = formatContextBlock(hits);
+      let ragContext = formatContextBlock(hits);
 
-      const systemPrompt = `
-ROL: Eres Michi, un tutor experto de software en tiempo real.
-
-HERRAMIENTA DETECTADA: ${detectedToolName}
-
-TAREA PRINCIPAL:
-1. Usa la captura de pantalla para confirmar la interfaz de ${detectedToolName}.
-2. CONTEXTO TECNICO (RAG):
-${ragContext ? ragContext : "No hay contexto oficial recuperado."}
-
-3. INSTRUCCION AL USUARIO:
-   - Responde a la duda: "${args.content}".
-   - Utiliza atajos de teclado y nombres de menus canonicos cuando el contexto lo permita.
-   - Si el CONTEXTO no cubre la pregunta, responde exactamente: "No tengo informacion oficial verificada para esto" en vez de inventar pasos de UI.
-   - Se conciso, claro y motivador (maximo 35 palabras), pensado para guiar en vivo.
-
-4. SEÑALIZACIÓN VISUAL (coordenadas NORMALIZADAS 0.0–1.0 respecto a la captura;
-   origen arriba-izquierda; x crece a la derecha, y hacia abajo):
-   - Devuelve un array "annotations" con las marcas que hay que dibujar en pantalla.
-   - Cada marca es un objeto con "kind" y coordenadas:
-       · {"kind":"point","x":..,"y":..} — el CENTRO exacto de un botón/ícono/menú.
-       · {"kind":"rect","x":..,"y":..,"w":..,"h":..} — enmarca un panel o zona
-         (x,y = esquina superior izquierda; w,h = ancho y alto normalizados).
-       · {"kind":"arrow","x":..,"y":..,"x2":..,"y2":..} — una flecha de (x,y) a
-         (x2,y2): un arrastre, un "mueve esto ahí" o "mira aquí".
-   - Añade "label" (1–4 palabras) y "step" (número 1,2,3… en el orden a seguir)
-     cuando la tarea tenga varios pasos.
-   - Usa VARIAS anotaciones para tareas complejas: enmarca la zona con un rect,
-     señala el botón con un point, indica el movimiento con una arrow.
-   - Si no hay nada inequívoco que señalar, devuelve "annotations": [].
-   - Además, copia la primera marca de tipo point (o el centro del primer rect)
-     en los campos sueltos "x","y","label" para compatibilidad; null si no hay.
-
-FORMATO OBLIGATORIO DE RESPUESTA:
-Devuelve UNICAMENTE un JSON valido con esta estructura:
-{
-  "detectedTool": "${detectedToolName}",
-  "explanation": "Texto explicativo conciso...",
-  "annotations": [
-    { "kind": "rect", "x": 0.62, "y": 0.05, "w": 0.2, "h": 0.1, "label": "Barra de color", "step": 1 },
-    { "kind": "point", "x": 0.7, "y": 0.09, "label": "Inspector", "step": 2 }
-  ],
-  "x": number | null,
-  "y": number | null,
-  "label": "Nombre del elemento principal" | null
-}
-`;
-
-      const openAiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey.trim()}`,
-        },
-        body: JSON.stringify({
-          model: visionModel,
-          response_format: { type: "json_object" },
-          temperature: 0.1,
-          max_tokens: 700,
-          messages: [
-            { role: "system", content: systemPrompt },
-            {
-              role: "user",
-              content: [
-                { type: "text", text: `Pregunta del usuario: "${args.content}"` },
-                { type: "image_url", image_url: { url: imageUrl } },
-              ],
-            },
-          ],
-        }),
+      let userContext = await analyzeUserContextFromImage({
+        imageBase64: args.imageBase64,
+        userQuestion: args.content,
+        ragContext,
+        appHint: args.app,
+        apiKey,
+        model: visionModel,
       });
 
-      if (!openAiResponse.ok) {
-        const errData = await openAiResponse.text();
-        throw new Error(`OpenAI Vision error (${openAiResponse.status}): ${errData}`);
+      const shouldRefineRag =
+        isHybridSearchLowCoverage(hits) &&
+        userContext.confidence !== "low" &&
+        userContext.softwareOrEnvironment !== "Desconocido";
+
+      if (shouldRefineRag) {
+        const refinedIdentity = resolveToolIdentity(userContext.softwareOrEnvironment);
+        try {
+          const refinedHits = await ctx.runAction(internal.rag.hybridSearch, {
+            query: args.content,
+            detectedToolName: userContext.softwareOrEnvironment,
+            requireLive: !refinedIdentity.inCatalog,
+            forceWeb,
+            limit: 3,
+          });
+          if (refinedHits.length > 0) {
+            hits = refinedHits;
+            ragContext = formatContextBlock(hits);
+            userContext = await analyzeUserContextFromImage({
+              imageBase64: args.imageBase64,
+              userQuestion: args.content,
+              ragContext,
+              appHint: args.app,
+              apiKey,
+              model: visionModel,
+            });
+          }
+        } catch (ragErr) {
+          console.warn("RAG refinado no disponible:", ragErr);
+        }
       }
 
-      const data = await openAiResponse.json();
-      const contentText = data.choices?.[0]?.message?.content;
-      if (!contentText) {
-        throw new Error("OpenAI Vision devolvio una respuesta vacia");
-      }
+      const resolvedEnvironment = userContext.softwareOrEnvironment;
 
-      const parsed = JSON.parse(contentText);
-      const resolvedToolName = parsed.detectedTool
-        ? String(parsed.detectedTool)
-        : detectedToolName;
-
-      let annotations = parseAnnotations(parsed.annotations);
-
-      // Compatibilidad: si no hubo annotations pero sí x/y sueltos, crear un
-      // point. Y al revés: el visualHighlight sale de la primera marca útil.
-      const hasLooseCoords = typeof parsed.x === "number" && typeof parsed.y === "number";
+      let annotations = parseAnnotations(userContext.annotationsRaw);
+      const hasLooseCoords = userContext.x !== null && userContext.y !== null;
       if (annotations.length === 0 && hasLooseCoords) {
         annotations = [
           {
             kind: "point",
-            x: clamp01(parsed.x),
-            y: clamp01(parsed.y),
-            label: parsed.label ? String(parsed.label) : undefined,
+            x: userContext.x!,
+            y: userContext.y!,
+            label: userContext.label,
           },
         ];
       }
@@ -395,26 +343,25 @@ Devuelve UNICAMENTE un JSON valido con esta estructura:
           }
         : hasLooseCoords
           ? {
-              x: clamp01(parsed.x),
-              y: clamp01(parsed.y),
-              label: parsed.label ? String(parsed.label) : undefined,
+              x: userContext.x!,
+              y: userContext.y!,
+              label: userContext.label,
             }
           : undefined;
 
-      const explanation = parsed.explanation ?? "He localizado la herramienta en tu pantalla.";
       const assistantMessageId = await ctx.runMutation(internal.messages.save, {
         conversationId: args.conversationId,
         role: "assistant",
-        content: explanation,
-        detectedTool: resolvedToolName,
+        content: userContext.explanation,
+        detectedTool: resolvedEnvironment,
         visualHighlight,
       });
 
       return {
         userMessageId,
         assistantMessageId,
-        content: explanation,
-        detectedTool: resolvedToolName,
+        content: userContext.explanation,
+        detectedTool: resolvedEnvironment,
         visualHighlight,
         annotations: annotations.length > 0 ? annotations : undefined,
         sources: toSources(hits),

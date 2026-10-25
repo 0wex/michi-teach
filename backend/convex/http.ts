@@ -133,6 +133,7 @@ http.route({
         conversationId: payload.conversationId,
         content: payload.content,
         imageBase64: payload.imageBase64,
+        app: typeof payload.app === "string" ? payload.app : undefined,
       });
 
       return corsResponse({
@@ -181,6 +182,7 @@ http.route({
         conversationId: convId,
         content: payload.question,
         imageBase64: payload.imageBase64,
+        app: typeof payload.app === "string" ? payload.app : undefined,
       });
 
       return corsResponse({
